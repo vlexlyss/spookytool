@@ -6,8 +6,13 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 
 local player = Players.LocalPlayer
+while not player do
+    task.wait()
+    player = Players.LocalPlayer
+end
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
@@ -164,6 +169,39 @@ end)
 
 local highlightedTrees = {}
 local selectedTree = nil
+local treeFoundNotified = false
+
+local function notifyTreeFound(treeType)
+    if treeFoundNotified then
+        return
+    end
+
+    treeFoundNotified = true
+
+    task.spawn(function()
+        for attempt = 1, 10 do
+            local success, err = pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Spooky Tree Found!",
+                    Text = "A " .. treeType .. " tree is in this server.",
+                    Duration = 5
+                })
+            end)
+
+            if success then
+                return
+            end
+
+            if attempt == 10 then
+                warn("Spooky Tree Tools: Could not show tree notification: "
+                    .. tostring(err))
+                return
+            end
+
+            task.wait(0.5)
+        end
+    end)
+end
 
 local function isPlankTarget(target)
 
@@ -243,6 +281,7 @@ local function addHighlight(treeClass)
     highlight.OutlineColor = Color3.new(1, 1, 1)
 
     highlightedTrees[treeClass] = target
+    notifyTreeFound(value == "spookyneon" and "Spooky Neon" or "spooky")
 end
 
 for _, instance in ipairs(workspace:GetDescendants()) do
@@ -730,7 +769,7 @@ local function queueScriptForTeleport()
         attempt = attempt + 1
 
         local success, result = pcall(function()
-            if SCRIPT_URL == "" or SCRIPT_URL == "PASTE_RAW_SCRIPT_URL_HERE" then
+            if SCRIPT_URL == "" or SCRIPT_URL == "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua" then
                 error("Set SCRIPT_URL to the hosted raw script URL.")
             end
 
