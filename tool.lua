@@ -200,6 +200,7 @@ end)
 --==================================================
 
 local highlightedTrees = {}
+local knownTreeClasses = {}
 local selectedTree = nil
 local treeFoundNotified = false
 
@@ -339,6 +340,8 @@ local function addHighlight(treeClass)
         return
     end
 
+    knownTreeClasses[treeClass] = true
+
     local value = string.lower(treeClass.Value)
 
     if value ~= "spooky" and value ~= "spookyneon" then
@@ -390,13 +393,27 @@ local function addHighlight(treeClass)
 end
 
 local watchedOwners = {}
+local refreshQueued = false
 
 local function refreshTreeHighlights()
-    for _, descendant in ipairs(workspace:GetDescendants()) do
-        if descendant.Name == "TreeClass" then
-            addHighlight(descendant)
+    refreshQueued = false
+    for treeClass in pairs(knownTreeClasses) do
+        if treeClass.Parent then
+            addHighlight(treeClass)
+        else
+            knownTreeClasses[treeClass] = nil
+            highlightedTrees[treeClass] = nil
         end
     end
+end
+
+local function scheduleTreeHighlightRefresh()
+    if refreshQueued then
+        return
+    end
+
+    refreshQueued = true
+    task.delay(0.1, refreshTreeHighlights)
 end
 
 local function watchOwner(owner)
@@ -405,7 +422,7 @@ local function watchOwner(owner)
     end
 
     watchedOwners[owner] = owner:GetPropertyChangedSignal("Value"):Connect(
-        refreshTreeHighlights
+        scheduleTreeHighlightRefresh
     )
 end
 
@@ -438,7 +455,38 @@ workspace.DescendantAdded:Connect(function(instance)
         end
     elseif instance.Name == "Owner" then
         watchOwner(instance)
-        task.defer(refreshTreeHighlights)
+        scheduleTreeHighlightRefresh()
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(instance)
+    if instance.Name == "TreeClass" then
+        knownTreeClasses[instance] = nil
+        local target = highlightedTrees[instance]
+        highlightedTrees[instance] = nil
+
+        if target then
+            local stillHasTrackedTreeClass = false
+            for treeClass, otherTarget in pairs(highlightedTrees) do
+                if treeClass.Parent and otherTarget == target then
+                    stillHasTrackedTreeClass = true
+                    break
+                end
+            end
+
+            if not stillHasTrackedTreeClass then
+                local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
+                if highlight then
+                    highlight:Destroy()
+                end
+            end
+        end
+    elseif instance.Name == "Owner" then
+        local connection = watchedOwners[instance]
+        if connection then
+            connection:Disconnect()
+            watchedOwners[instance] = nil
+        end
     end
 end)
 
@@ -895,6 +943,7 @@ serverHop.Parent = main
 
 local hopping = false
 local queueing = false
+local HOP_RETRY_DELAY = 5
 local treeSearchButton = Instance.new("TextButton")
 treeSearchButton.Size = UDim2.fromOffset(300, 38)
 treeSearchButton.Position = UDim2.fromOffset(15, 331)
@@ -1121,19 +1170,19 @@ local function beginServerHop()
 
                         if failureRaised then
                             serverHop.Text = "Teleport failed; trying another..."
-                            task.wait(1)
+                            task.wait(HOP_RETRY_DELAY)
                         elseif not teleportSuccess then
-                            serverHop.Text = "Teleport request failed; trying another..."
+                            serverHop.Text = "Teleport failed; waiting before retry..."
                             warn(
                                 "Spooky Tree Tools: Teleport to server "
                                 .. server.id
                                 .. " failed: "
                                 .. tostring(teleportError)
                             )
-                            task.wait(1)
+                            task.wait(HOP_RETRY_DELAY)
                         elseif hopping and serverHop.Parent then
-                            serverHop.Text = "Teleport timed out; trying another..."
-                            task.wait(1)
+                            serverHop.Text = "Teleport timed out; waiting before retry..."
+                            task.wait(HOP_RETRY_DELAY)
                         end
                     end
                 end
