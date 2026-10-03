@@ -8,11 +8,8 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 
-local player = Players.LocalPlayer
-while not player do
-    task.wait()
-    player = Players.LocalPlayer
-end
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local playerGui = player:WaitForChild("PlayerGui")
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
@@ -24,7 +21,7 @@ local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/h
 local gui = Instance.new("ScreenGui")
 gui.Name = "SpookyTreeTools"
 gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+gui.Parent = playerGui
 
 -- Main window
 local main = Instance.new("Frame")
@@ -89,6 +86,7 @@ local flyGyro = nil
 local flyConnection = nil
 local requestedWalkSpeed = nil
 local originalWalkSpeeds = {}
+local originalAutoRotate = {}
 local characterAddedConnection = nil
 
 local function stopFlying()
@@ -107,6 +105,13 @@ local function stopFlying()
     if flyGyro then
         flyGyro:Destroy()
         flyGyro = nil
+    end
+
+    for humanoid, wasAutoRotateEnabled in pairs(originalAutoRotate) do
+        if humanoid.Parent then
+            humanoid.AutoRotate = wasAutoRotateEnabled
+        end
+        originalAutoRotate[humanoid] = nil
     end
 
     if flyButton then
@@ -626,6 +631,13 @@ local function attachFlyMovers(root)
     flyGyro.P = 9000
     flyGyro.D = 500
     flyGyro.Parent = root
+
+    local character = root:FindFirstAncestorOfClass("Model")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid and originalAutoRotate[humanoid] == nil then
+        originalAutoRotate[humanoid] = humanoid.AutoRotate
+        humanoid.AutoRotate = false
+    end
 end
 
 local function startFlying()
