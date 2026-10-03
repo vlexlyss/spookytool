@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
@@ -23,7 +24,7 @@ gui.Parent = player:WaitForChild("PlayerGui")
 -- Main window
 local main = Instance.new("Frame")
 main.Name = "Window"
-main.Size = UDim2.fromOffset(390, 285)
+main.Size = UDim2.fromOffset(390, 335)
 main.Position = UDim2.new(0, 30, 0, 120)
 main.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
 main.BorderSizePixel = 1
@@ -76,7 +77,49 @@ close.Font = Enum.Font.Arial
 close.AutoButtonColor = false
 close.Parent = titleBar
 
+local flyEnabled = false
+local flyButton = nil
+local flyVelocity = nil
+local flyGyro = nil
+local flyConnection = nil
+local requestedWalkSpeed = nil
+local originalWalkSpeeds = {}
+local characterAddedConnection = nil
+
+local function stopFlying()
+    flyEnabled = false
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if flyVelocity then
+        flyVelocity:Destroy()
+        flyVelocity = nil
+    end
+
+    if flyGyro then
+        flyGyro:Destroy()
+        flyGyro = nil
+    end
+
+    if flyButton then
+        flyButton.Text = "Fly: OFF"
+    end
+end
+
 close.MouseButton1Click:Connect(function()
+    stopFlying()
+    if characterAddedConnection then
+        characterAddedConnection:Disconnect()
+        characterAddedConnection = nil
+    end
+    for humanoid, originalSpeed in pairs(originalWalkSpeeds) do
+        if humanoid.Parent then
+            humanoid.WalkSpeed = originalSpeed
+        end
+    end
     gui:Destroy()
 end)
 
@@ -459,12 +502,210 @@ teleportButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
+-- MOVEMENT CONTROLS
+--==================================================
+
+flyButton = Instance.new("TextButton")
+flyButton.Size = UDim2.fromOffset(300, 38)
+flyButton.Position = UDim2.fromOffset(15, 190)
+flyButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+flyButton.BorderSizePixel = 1
+flyButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
+flyButton.Text = "Fly: OFF"
+flyButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+flyButton.TextSize = 16
+flyButton.Font = Enum.Font.Arial
+flyButton.AutoButtonColor = false
+flyButton.Parent = main
+
+local walkSpeedInput = Instance.new("TextBox")
+walkSpeedInput.Size = UDim2.fromOffset(190, 38)
+walkSpeedInput.Position = UDim2.fromOffset(15, 237)
+walkSpeedInput.BackgroundColor3 = Color3.fromRGB(25, 34, 45)
+walkSpeedInput.BorderSizePixel = 1
+walkSpeedInput.BorderColor3 = Color3.fromRGB(67, 104, 150)
+walkSpeedInput.Text = "16"
+walkSpeedInput.PlaceholderText = "WalkSpeed (1-200)"
+walkSpeedInput.TextColor3 = Color3.fromRGB(225, 235, 245)
+walkSpeedInput.PlaceholderColor3 = Color3.fromRGB(150, 165, 180)
+walkSpeedInput.TextSize = 15
+walkSpeedInput.Font = Enum.Font.Arial
+walkSpeedInput.ClearTextOnFocus = false
+walkSpeedInput.Parent = main
+
+local setWalkSpeedButton = Instance.new("TextButton")
+setWalkSpeedButton.Size = UDim2.fromOffset(103, 38)
+setWalkSpeedButton.Position = UDim2.fromOffset(212, 237)
+setWalkSpeedButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+setWalkSpeedButton.BorderSizePixel = 1
+setWalkSpeedButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
+setWalkSpeedButton.Text = "Set Speed"
+setWalkSpeedButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+setWalkSpeedButton.TextSize = 15
+setWalkSpeedButton.Font = Enum.Font.Arial
+setWalkSpeedButton.AutoButtonColor = false
+setWalkSpeedButton.Parent = main
+
+local function applyWalkSpeed()
+    local speed = tonumber(walkSpeedInput.Text)
+    if not speed or speed < 1 or speed > 200 then
+        walkSpeedInput.Text = ""
+        walkSpeedInput.PlaceholderText = "Enter 1-200"
+        return
+    end
+
+    requestedWalkSpeed = speed
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        if originalWalkSpeeds[humanoid] == nil then
+            originalWalkSpeeds[humanoid] = humanoid.WalkSpeed
+        end
+        humanoid.WalkSpeed = speed
+    end
+
+    walkSpeedInput.Text = tostring(speed)
+    walkSpeedInput.PlaceholderText = "WalkSpeed (1-200)"
+end
+
+local function attachFlyMovers(root)
+    if flyVelocity then
+        flyVelocity:Destroy()
+    end
+    if flyGyro then
+        flyGyro:Destroy()
+    end
+
+    flyVelocity = Instance.new("BodyVelocity")
+    flyVelocity.MaxForce = Vector3.new(1000000, 1000000, 1000000)
+    flyVelocity.P = 10000
+    flyVelocity.Velocity = Vector3.zero
+    flyVelocity.Parent = root
+
+    flyGyro = Instance.new("BodyGyro")
+    flyGyro.MaxTorque = Vector3.new(1000000, 1000000, 1000000)
+    flyGyro.P = 9000
+    flyGyro.D = 500
+    flyGyro.Parent = root
+end
+
+local function startFlying()
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        flyButton.Text = "Character not ready"
+        task.delay(2, function()
+            if flyButton.Parent and flyButton.Text == "Character not ready" then
+                flyButton.Text = "Fly: OFF"
+            end
+        end)
+        return
+    end
+
+    flyEnabled = true
+    flyButton.Text = "Fly: ON"
+    attachFlyMovers(root)
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flyEnabled or not flyButton.Parent then
+            stopFlying()
+            return
+        end
+
+        local currentCharacter = player.Character
+        local currentRoot = currentCharacter
+            and currentCharacter:FindFirstChild("HumanoidRootPart")
+        if not currentRoot then
+            return
+        end
+
+        if not flyVelocity or flyVelocity.Parent ~= currentRoot then
+            attachFlyMovers(currentRoot)
+        end
+
+        local camera = workspace.CurrentCamera
+        if not camera then
+            flyVelocity.Velocity = Vector3.zero
+            return
+        end
+
+        local direction = Vector3.zero
+        if UserInputService:GetFocusedTextBox() == nil then
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                direction += camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                direction -= camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                direction += camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                direction -= camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                direction += Vector3.yAxis
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                direction -= Vector3.yAxis
+            end
+        end
+
+        if direction.Magnitude > 0 then
+            direction = direction.Unit * 60
+        end
+
+        flyVelocity.Velocity = direction
+        local look = camera.CFrame.LookVector
+        local flatLook = Vector3.new(look.X, 0, look.Z)
+        if flatLook.Magnitude > 0 then
+            flyGyro.CFrame = CFrame.lookAt(
+                currentRoot.Position,
+                currentRoot.Position + flatLook
+            )
+        end
+    end)
+end
+
+flyButton.MouseButton1Click:Connect(function()
+    if flyEnabled then
+        stopFlying()
+    else
+        startFlying()
+    end
+end)
+
+setWalkSpeedButton.MouseButton1Click:Connect(applyWalkSpeed)
+walkSpeedInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        applyWalkSpeed()
+    end
+end)
+
+characterAddedConnection = player.CharacterAdded:Connect(function(character)
+    if requestedWalkSpeed then
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid and gui.Parent then
+            originalWalkSpeeds[humanoid] = humanoid.WalkSpeed
+            humanoid.WalkSpeed = requestedWalkSpeed
+        end
+    end
+
+    if flyEnabled then
+        local root = character:WaitForChild("HumanoidRootPart", 5)
+        if root and flyEnabled and gui.Parent then
+            attachFlyMovers(root)
+        end
+    end
+end)
+
+--==================================================
 -- SERVER HOP
 --==================================================
 
 local serverHop = Instance.new("TextButton")
 serverHop.Size = UDim2.fromOffset(300, 38)
-serverHop.Position = UDim2.fromOffset(15, 190)
+serverHop.Position = UDim2.fromOffset(15, 284)
 serverHop.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
 serverHop.BorderSizePixel = 1
 serverHop.BorderColor3 = Color3.fromRGB(67, 104, 150)
@@ -489,7 +730,7 @@ local function queueScriptForTeleport()
         attempt = attempt + 1
 
         local success, result = pcall(function()
-            if SCRIPT_URL == "" or SCRIPT_URL == "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua" then
+            if SCRIPT_URL == "" or SCRIPT_URL == "PASTE_RAW_SCRIPT_URL_HERE" then
                 error("Set SCRIPT_URL to the hosted raw script URL.")
             end
 
@@ -575,7 +816,11 @@ serverHop.MouseButton1Click:Connect(function()
                 local attemptedServer = false
 
                 for _, server in ipairs(data.data) do
-                    if server.id ~= currentJobId
+                    if type(server) == "table"
+                        and type(server.id) == "string"
+                        and type(server.playing) == "number"
+                        and type(server.maxPlayers) == "number"
+                        and server.id ~= currentJobId
                         and server.playing < server.maxPlayers
                         and not attemptedServers[server.id] then
                         attemptedServer = true
@@ -593,7 +838,7 @@ serverHop.MouseButton1Click:Connect(function()
                                 end
                             )
 
-                        local teleportSuccess = pcall(function()
+                        local teleportSuccess, teleportError = pcall(function()
                             TeleportService:TeleportToPlaceInstance(
                                 placeId,
                                 server.id,
@@ -602,12 +847,31 @@ serverHop.MouseButton1Click:Connect(function()
                         end)
 
                         if teleportSuccess then
+                            local startedAt = os.clock()
                             repeat
-                                task.wait()
+                                task.wait(0.25)
                             until failureRaised or not hopping
                                 or not serverHop.Parent
+                                or os.clock() - startedAt >= 15
                         end
                         failureConnection:Disconnect()
+
+                        if failureRaised then
+                            serverHop.Text = "Teleport failed; trying another..."
+                            task.wait(1)
+                        elseif not teleportSuccess then
+                            serverHop.Text = "Teleport request failed; trying another..."
+                            warn(
+                                "Spooky Tree Tools: Teleport to server "
+                                .. server.id
+                                .. " failed: "
+                                .. tostring(teleportError)
+                            )
+                            task.wait(1)
+                        elseif hopping and serverHop.Parent then
+                            serverHop.Text = "Teleport timed out; trying another..."
+                            task.wait(1)
+                        end
                     end
                 end
 
@@ -644,4 +908,6 @@ end
 
 hover(selector)
 hover(teleportButton)
+hover(flyButton)
+hover(setWalkSpeedButton)
 hover(serverHop)
