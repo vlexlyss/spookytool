@@ -868,6 +868,32 @@ local function queueScriptForTeleport(continueTreeSearch)
     return false, "Queue cancelled because the UI was closed."
 end
 
+local function waitForPlayerReady(continueTreeSearch)
+    while serverHop.Parent do
+        if continueTreeSearch and not searchingForTree then
+            return false
+        end
+
+        local character = player.Character
+        if not character then
+            serverHop.Text = "Waiting for character..."
+            task.wait(0.25)
+        else
+            serverHop.Text = "Waiting for character..."
+            local humanoid = character:WaitForChild("Humanoid", 2)
+            local root = character:WaitForChild("HumanoidRootPart", 2)
+            if humanoid and root and character == player.Character
+                and humanoid.Health > 0 then
+                task.wait(2)
+                return true
+            end
+            task.wait(0.5)
+        end
+    end
+
+    return false
+end
+
 local function stopTreeSearch(found, treeType)
     searchingForTree = false
     writeAutoSearchFlag(false)
@@ -885,6 +911,11 @@ local function beginServerHop()
     end
 
     queueing = true
+    if not waitForPlayerReady(searchingForTree) then
+        queueing = false
+        return
+    end
+
     local queued, queueError = queueScriptForTeleport(searchingForTree)
     queueing = false
 
@@ -942,6 +973,11 @@ local function beginServerHop()
             if not decodeSuccess or type(data) ~= "table"
                 or type(data.data) ~= "table" then
                 serverHop.Text = "Invalid server list; retrying..."
+                local responseSummary = tostring(result)
+                warn(
+                    "Spooky Tree Tools: Server API returned an invalid list: "
+                    .. string.sub(responseSummary, 1, 300)
+                )
                 task.wait(2)
             else
                 cursor = data.nextPageCursor
