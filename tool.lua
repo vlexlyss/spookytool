@@ -308,12 +308,6 @@ local function hasNonPlayerOwner(target)
         return true
     end
 
-    for _, descendant in ipairs(target:GetDescendants()) do
-        if descendant.Name == "Owner" and ownerValueIsNonPlayer(descendant) then
-            return true
-        end
-    end
-
     return false
 end
 
@@ -322,15 +316,12 @@ local function isEligibleTreeTarget(target)
 end
 
 local function hasSpookyTree()
-    for _, instance in ipairs(workspace:GetDescendants()) do
-        if instance:IsA("StringValue") and instance.Name == "TreeClass" then
-            local value = string.lower(instance.Value)
-            if value == "spooky" or value == "spookyneon" then
-                local target = instance:FindFirstAncestorOfClass("Model")
-                    or instance.Parent
-                if target and isEligibleTreeTarget(target) then
-                    return true, value
-                end
+    for treeClass, target in pairs(highlightedTrees) do
+        if treeClass.Parent and target and target.Parent then
+            local value = string.lower(treeClass.Value)
+            if (value == "spooky" or value == "spookyneon")
+                and not hasNonPlayerOwner(target) then
+                return true, value
             end
         end
     end
