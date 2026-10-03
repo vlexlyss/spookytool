@@ -9,7 +9,7 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
-local SCRIPT_URL = "PASTE_RAW_SCRIPT_URL_HERE"
+local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
 
 --==================================================
 -- GUI
@@ -476,46 +476,59 @@ serverHop.AutoButtonColor = false
 serverHop.Parent = main
 
 local hopping = false
+local queueing = false
 
 local function queueScriptForTeleport()
-
-    if SCRIPT_URL == "" or SCRIPT_URL == "PASTE_RAW_SCRIPT_URL_HERE" then
-        return false, "Set SCRIPT_URL to the hosted raw script URL."
-    end
-
-    if type(queue_on_teleport) ~= "function" then
-        return false, "Potassium queue_on_teleport is unavailable."
-    end
 
     local queuedSource = "loadstring(game:HttpGet("
         .. HttpService:JSONEncode(SCRIPT_URL)
         .. "))()"
 
-    local success, err = pcall(function()
-        queue_on_teleport(queuedSource)
-    end)
+    local attempt = 0
+    while serverHop.Parent do
+        attempt = attempt + 1
 
-    if not success then
-        return false, tostring(err)
+        local success, result = pcall(function()
+            if SCRIPT_URL == "" or SCRIPT_URL == "PASTE_RAW_SCRIPT_URL_HERE" then
+                error("Set SCRIPT_URL to the hosted raw script URL.")
+            end
+
+            if type(queue_on_teleport) ~= "function" then
+                error("Potassium queue_on_teleport is unavailable.")
+            end
+
+            return queue_on_teleport(queuedSource)
+        end)
+
+        if success and result ~= false then
+            return true
+        end
+
+        local err = success and "queue_on_teleport returned false"
+            or tostring(result)
+        serverHop.Text = "Queue retry " .. attempt .. "..."
+        warn("Spooky Tree Tools: Queue attempt " .. attempt .. " failed: " .. err)
+        task.wait(1)
     end
 
-    return true
+    return false, "Queue cancelled because the UI was closed."
 end
 
 serverHop.MouseButton1Click:Connect(function()
 
-    if hopping then
+    if hopping or queueing then
         return
     end
 
+    queueing = true
     local queued, queueError = queueScriptForTeleport()
+    queueing = false
+
     if not queued then
-        serverHop.Text = "Queue setup failed"
-        warn("Spooky Tree Tools: " .. queueError)
-        task.wait(2)
         if serverHop.Parent then
             serverHop.Text = "Server Hop"
         end
+        warn("Spooky Tree Tools: " .. queueError)
         return
     end
 
