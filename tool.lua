@@ -489,7 +489,7 @@ local function queueScriptForTeleport()
         attempt = attempt + 1
 
         local success, result = pcall(function()
-            if SCRIPT_URL == "" or SCRIPT_URL == "PASTE_RAW_SCRIPT_URL_HERE" then
+            if SCRIPT_URL == "" or SCRIPT_URL == "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua" then
                 error("Set SCRIPT_URL to the hosted raw script URL.")
             end
 
