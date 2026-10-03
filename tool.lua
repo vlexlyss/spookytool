@@ -256,6 +256,71 @@ local function isPlankTarget(target)
     return false
 end
 
+local function isPlayerOwnerName(ownerName)
+    local normalizedName = string.lower(string.match(ownerName, "^%s*(.-)%s*$") or "")
+    if normalizedName == "" then
+        return true
+    end
+
+    for _, candidate in ipairs(Players:GetPlayers()) do
+        if string.lower(candidate.Name) == normalizedName
+            or string.lower(candidate.DisplayName) == normalizedName then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ownerValueIsNonPlayer(owner)
+    if not owner:IsA("ValueBase") then
+        return false
+    end
+
+    local value = owner.Value
+    if value == nil then
+        return false
+    end
+
+    if typeof(value) == "Instance" then
+        if value:IsA("Player") or Players:GetPlayerFromCharacter(value) then
+            return false
+        end
+
+        return not isPlayerOwnerName(value.Name)
+    end
+
+    return not isPlayerOwnerName(tostring(value))
+end
+
+local function hasNonPlayerOwner(target)
+    local current = target
+    while current and current ~= workspace do
+        local owner = current:FindFirstChild("Owner")
+        if owner and ownerValueIsNonPlayer(owner) then
+            return true
+        end
+        current = current.Parent
+    end
+
+    local workspaceOwner = workspace:FindFirstChild("Owner")
+    if workspaceOwner and ownerValueIsNonPlayer(workspaceOwner) then
+        return true
+    end
+
+    for _, descendant in ipairs(target:GetDescendants()) do
+        if descendant.Name == "Owner" and ownerValueIsNonPlayer(descendant) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function isEligibleTreeTarget(target)
+    return not isPlankTarget(target) and not hasNonPlayerOwner(target)
+end
+
 local function hasSpookyTree()
     for _, instance in ipairs(workspace:GetDescendants()) do
         if instance:IsA("StringValue") and instance.Name == "TreeClass" then
@@ -263,7 +328,7 @@ local function hasSpookyTree()
             if value == "spooky" or value == "spookyneon" then
                 local target = instance:FindFirstAncestorOfClass("Model")
                     or instance.Parent
-                if target and not isPlankTarget(target) then
+                if target and isEligibleTreeTarget(target) then
                     return true, value
                 end
             end
@@ -296,7 +361,7 @@ local function addHighlight(treeClass)
         return
     end
 
-    if isPlankTarget(target) then
+    if not isEligibleTreeTarget(target) then
         local existingHighlight = target:FindFirstChild(HIGHLIGHT_NAME)
         if existingHighlight then
             existingHighlight:Destroy()
@@ -333,7 +398,30 @@ local function addHighlight(treeClass)
     notifyTreeFound(value == "spookyneon" and "Spooky Neon" or "spooky")
 end
 
+local watchedOwners = {}
+
+local function refreshTreeHighlights()
+    for _, descendant in ipairs(workspace:GetDescendants()) do
+        if descendant.Name == "TreeClass" then
+            addHighlight(descendant)
+        end
+    end
+end
+
+local function watchOwner(owner)
+    if watchedOwners[owner] or not owner:IsA("ValueBase") then
+        return
+    end
+
+    watchedOwners[owner] = owner:GetPropertyChangedSignal("Value"):Connect(
+        refreshTreeHighlights
+    )
+end
+
 for _, instance in ipairs(workspace:GetDescendants()) do
+    if instance.Name == "Owner" then
+        watchOwner(instance)
+    end
     if instance.Name == "TreeClass" then
         addHighlight(instance)
     end
@@ -345,7 +433,7 @@ workspace.DescendantAdded:Connect(function(instance)
         addHighlight(instance)
     elseif string.find(string.lower(instance.Name), "plank", 1, true) then
         for treeClass, target in pairs(highlightedTrees) do
-            if target and target.Parent and isPlankTarget(target) then
+            if target and target.Parent and not isEligibleTreeTarget(target) then
                 local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
                 if highlight then
                     highlight:Destroy()
@@ -357,6 +445,9 @@ workspace.DescendantAdded:Connect(function(instance)
                 end
             end
         end
+    elseif instance.Name == "Owner" then
+        watchOwner(instance)
+        task.defer(refreshTreeHighlights)
     end
 end)
 
@@ -447,7 +538,7 @@ local function refreshTreeList()
     for treeClass, target in pairs(highlightedTrees) do
 
         if treeClass.Parent and target and target.Parent then
-            if isPlankTarget(target) then
+            if not isEligibleTreeTarget(target) then
                 local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
                 if highlight then
                     highlight:Destroy()
@@ -512,7 +603,7 @@ local function refreshTreeList()
 
         button.MouseButton1Click:Connect(function()
 
-            if isPlankTarget(data.target) then
+            if not isEligibleTreeTarget(data.target) then
                 selectedTree = nil
                 selector.Text = "Select highlighted tree..."
                 refreshTreeList()
@@ -561,7 +652,7 @@ teleportButton.Parent = main
 teleportButton.MouseButton1Click:Connect(function()
 
     if not selectedTree or not selectedTree.Parent
-        or isPlankTarget(selectedTree) then
+        or not isEligibleTreeTarget(selectedTree) then
         selectedTree = nil
         selector.Text = "Select a highlighted tree..."
         return
