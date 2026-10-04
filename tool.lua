@@ -11,32 +11,49 @@ local Debris = game:GetService("Debris")
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local playerGui = player:WaitForChild("PlayerGui")
 
-local function readAutoSearchFlag()
+local function getExecutorEnvironment()
     if type(getgenv) ~= "function" then
-        return false
+        return nil
     end
 
     local success, environment = pcall(getgenv)
-    return success
-        and type(environment) == "table"
-        and environment.SpookyTreeAutoSearch == true
+    if success and type(environment) == "table" then
+        return environment
+    end
+
+    return nil
 end
 
-local function writeAutoSearchFlag(enabled)
-    if type(getgenv) ~= "function" then
+local function readAutoSearchMode()
+    local environment = getExecutorEnvironment()
+    if not environment then
+        return nil
+    end
+
+    if environment.SpookyTreeAutoSearchMode == "spooky"
+        or environment.SpookyTreeAutoSearchMode == "spookyneon" then
+        return environment.SpookyTreeAutoSearchMode
+    end
+
+    if environment.SpookyTreeAutoSearch == true then
+        return "spooky"
+    end
+
+    return nil
+end
+
+local function writeAutoSearchMode(mode)
+    local environment = getExecutorEnvironment()
+    if not environment then
         return false
     end
 
-    local success, environment = pcall(getgenv)
-    if not success or type(environment) ~= "table" then
-        return false
-    end
-
-    environment.SpookyTreeAutoSearch = enabled
+    environment.SpookyTreeAutoSearchMode = mode
+    environment.SpookyTreeAutoSearch = mode ~= nil
     return true
 end
 
-local searchingForTree = readAutoSearchFlag()
+local treeSearchMode = readAutoSearchMode()
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
@@ -85,14 +102,12 @@ local function readSavedScriptKey()
         end
     end
 
-    if type(getgenv) == "function" then
-        local success, environment = pcall(getgenv)
-        if success and type(environment) == "table" then
-            local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
-            if VALID_SCRIPT_KEYS[key] then
-                authorizedScriptKey = key
-                return key
-            end
+    local environment = getExecutorEnvironment()
+    if environment then
+        local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
+        if VALID_SCRIPT_KEYS[key] then
+            authorizedScriptKey = key
+            return key
         end
     end
 
@@ -104,14 +119,8 @@ local function hasSavedAuthorization()
         return true
     end
 
-    if type(getgenv) ~= "function" then
-        return false
-    end
-
-    local success, environment = pcall(getgenv)
-    return success
-        and type(environment) == "table"
-        and environment.SpookyTreeAuthorized == true
+    local environment = getExecutorEnvironment()
+    return environment ~= nil and environment.SpookyTreeAuthorized == true
 end
 
 local function saveAuthorization(key)
@@ -127,12 +136,10 @@ local function saveAuthorization(key)
         end
     end
 
-    if type(getgenv) == "function" then
-        local success, environment = pcall(getgenv)
-        if success and type(environment) == "table" then
-            environment.SpookyTreeSavedKey = key
-            environment.SpookyTreeAuthorized = true
-        end
+    local environment = getExecutorEnvironment()
+    if environment then
+        environment.SpookyTreeSavedKey = key
+        environment.SpookyTreeAuthorized = true
     end
 
     if not savedToFile then
@@ -239,7 +246,7 @@ gui.Parent = playerGui
 
 local main = Instance.new("Frame")
 main.Name = "Window"
-main.Size = UDim2.fromOffset(390, 382)
+main.Size = UDim2.fromOffset(390, 429)
 main.Position = UDim2.new(0, 30, 0, 120)
 main.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
 main.BorderSizePixel = 1
@@ -285,6 +292,7 @@ close.Font = Enum.Font.Arial
 close.AutoButtonColor = false
 close.Parent = titleBar
 
+local closeCleanup
 local flyEnabled = false
 local flyButton = nil
 local flyVelocity = nil
@@ -322,10 +330,14 @@ local function stopFlying()
 
     if flyButton then
         flyButton.Text = "Fly: OFF"
+        flyButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
     end
 end
 
 close.MouseButton1Click:Connect(function()
+    if closeCleanup then
+        closeCleanup()
+    end
     stopFlying()
     if characterAddedConnection then
         characterAddedConnection:Disconnect()
@@ -373,7 +385,18 @@ end)
 local highlightedTrees = {}
 local knownTreeClasses = {}
 local selectedTree = nil
-local treeFoundNotified = false
+local notificationState = getExecutorEnvironment()
+local notifiedJobs = notificationState
+    and notificationState.SpookyTreeNotifiedJobs
+if type(notifiedJobs) ~= "table" then
+    notifiedJobs = {}
+    if notificationState then
+        notificationState.SpookyTreeNotifiedJobs = notifiedJobs
+    end
+end
+local currentJobId = game.JobId
+local treeFoundNotified = currentJobId ~= ""
+    and notifiedJobs[currentJobId] == true
 
 local function playExclusiveTreeFoundSound()
     if authorizedScriptKey ~= EXCLUSIVE_AUDIO_KEY then
@@ -397,11 +420,14 @@ local function playExclusiveTreeFoundSound()
 end
 
 local function notifyTreeFound(treeType)
-    if treeFoundNotified then
+    if treeFoundNotified or (currentJobId ~= "" and notifiedJobs[currentJobId]) then
         return
     end
 
     treeFoundNotified = true
+    if currentJobId ~= "" then
+        notifiedJobs[currentJobId] = true
+    end
     playExclusiveTreeFoundSound()
 
     task.spawn(function()
@@ -509,11 +535,13 @@ local function isEligibleTreeTarget(target)
     return not isPlankTarget(target) and not hasNonPlayerOwner(target)
 end
 
-local function hasSpookyTree()
+local function hasSpookyTree(searchMode)
     for treeClass, target in pairs(highlightedTrees) do
         if treeClass.Parent and target and target.Parent then
             local value = string.lower(treeClass.Value)
-            if (value == "spooky" or value == "spookyneon")
+            if (searchMode == nil
+                    and (value == "spooky" or value == "spookyneon")
+                or searchMode == value)
                 and not hasNonPlayerOwner(target) then
                 return true, value
             end
@@ -994,6 +1022,7 @@ local function startFlying()
     local root = character and character:FindFirstChild("HumanoidRootPart")
     if not root then
         flyButton.Text = "Character not ready"
+        flyButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
         task.delay(2, function()
             if flyButton.Parent and flyButton.Text == "Character not ready" then
                 flyButton.Text = "Fly: OFF"
@@ -1004,6 +1033,7 @@ local function startFlying()
 
     flyEnabled = true
     flyButton.Text = "Fly: ON"
+    flyButton.BackgroundColor3 = Color3.fromRGB(51, 87, 130)
     attachFlyMovers(root)
 
     flyConnection = RunService.RenderStepped:Connect(function()
@@ -1115,14 +1145,18 @@ serverHop.Parent = main
 
 local hopping = false
 local queueing = false
+local hopIsAutoSearch = false
+local hopTaskRunning = false
+local beginServerHop
 local HOP_RETRY_DELAY = 5
+local visitedServersFallback = {}
 local treeSearchButton = Instance.new("TextButton")
 treeSearchButton.Size = UDim2.fromOffset(300, 38)
 treeSearchButton.Position = UDim2.fromOffset(15, 331)
 treeSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
 treeSearchButton.BorderSizePixel = 1
 treeSearchButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
-treeSearchButton.Text = searchingForTree and "Find Spooky Tree: ON"
+treeSearchButton.Text = treeSearchMode == "spooky" and "Find Spooky Tree: ON"
     or "Find Spooky Tree: OFF"
 treeSearchButton.TextColor3 = Color3.fromRGB(225, 235, 245)
 treeSearchButton.TextSize = 16
@@ -1130,23 +1164,84 @@ treeSearchButton.Font = Enum.Font.Arial
 treeSearchButton.AutoButtonColor = false
 treeSearchButton.Parent = main
 
-local function queueScriptForTeleport(continueTreeSearch)
+local neonSearchButton = Instance.new("TextButton")
+neonSearchButton.Size = UDim2.fromOffset(300, 38)
+neonSearchButton.Position = UDim2.fromOffset(15, 378)
+neonSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+neonSearchButton.BorderSizePixel = 1
+neonSearchButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
+neonSearchButton.Text = treeSearchMode == "spookyneon"
+    and "Find Spooky Neon: ON"
+    or "Find Spooky Neon: OFF"
+neonSearchButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+neonSearchButton.TextSize = 16
+neonSearchButton.Font = Enum.Font.Arial
+neonSearchButton.AutoButtonColor = false
+neonSearchButton.Parent = main
+
+local function getVisitedServerState(placeId)
+    local placeKey = tostring(placeId)
+    local environment = getExecutorEnvironment()
+    local allVisited
+    if environment then
+        if type(environment.SpookyTreeVisitedServers) ~= "table" then
+            environment.SpookyTreeVisitedServers = {}
+        end
+        allVisited = environment.SpookyTreeVisitedServers
+    else
+        allVisited = visitedServersFallback
+    end
+
+    if type(allVisited) ~= "table" then
+        allVisited = {}
+        visitedServersFallback = allVisited
+    end
+
+    local state = allVisited[placeKey]
+    if type(state) ~= "table" then
+        state = {}
+        allVisited[placeKey] = state
+    end
+
+    return state
+end
+
+local function hasVisitedServer(placeId, serverId)
+    return getVisitedServerState(placeId)[serverId] == true
+end
+
+local function markServerVisited(placeId, serverId)
+    local state = getVisitedServerState(placeId)
+    if state[serverId] then
+        return
+    end
+
+    state[serverId] = true
+end
+
+local function queueScriptForTeleport(searchMode, expectedSearchMode)
 
     local queuedSource = "loadstring(game:HttpGet("
         .. HttpService:JSONEncode(SCRIPT_URL)
         .. "))()"
 
+    local queuedSearchMode = searchMode and HttpService:JSONEncode(searchMode)
+        or "nil"
     queuedSource = "if type(getgenv) == 'function' then "
-        .. "getgenv().SpookyTreeAuthorized = true end; "
+        .. "local env = getgenv(); "
+        .. "env.SpookyTreeAuthorized = true; "
+        .. "env.SpookyTreeAutoSearchMode = " .. queuedSearchMode .. "; "
+        .. "env.SpookyTreeAutoSearch = "
+        .. (searchMode and "true" or "false")
+        .. " end; "
         .. queuedSource
-
-    if continueTreeSearch then
-        queuedSource = "getgenv().SpookyTreeAutoSearch = true; "
-            .. queuedSource
-    end
 
     local attempt = 0
     while serverHop.Parent do
+        if expectedSearchMode ~= treeSearchMode then
+            return false, "Search mode changed before queue setup completed."
+        end
+
         attempt = attempt + 1
 
         local success, result = pcall(function()
@@ -1175,9 +1270,9 @@ local function queueScriptForTeleport(continueTreeSearch)
     return false, "Queue cancelled because the UI was closed."
 end
 
-local function waitForPlayerReady(continueTreeSearch)
+local function waitForPlayerReady(searchMode)
     while serverHop.Parent do
-        if continueTreeSearch and not searchingForTree then
+        if searchMode and treeSearchMode ~= searchMode then
             return false
         end
 
@@ -1202,51 +1297,91 @@ local function waitForPlayerReady(continueTreeSearch)
 end
 
 local function stopTreeSearch(found, treeType)
-    searchingForTree = false
-    writeAutoSearchFlag(false)
+    treeSearchMode = nil
+    writeAutoSearchMode(nil)
     treeSearchButton.Text = "Find Spooky Tree: OFF"
+    treeSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    neonSearchButton.Text = "Find Spooky Neon: OFF"
+    neonSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
     if found then
         serverHop.Text = "Spooky tree found!"
         notifyTreeFound(treeType == "spookyneon" and "Spooky Neon" or "spooky")
     end
 end
 
-local function beginServerHop()
+beginServerHop = function()
 
-    if hopping or queueing then
+    if hopTaskRunning or queueing then
         return
     end
 
+    hopTaskRunning = true
     queueing = true
-    if not waitForPlayerReady(searchingForTree) then
+    local queuedSearchMode = treeSearchMode
+    if not waitForPlayerReady(queuedSearchMode) then
         queueing = false
+        hopTaskRunning = false
+        if treeSearchMode then
+            task.defer(beginServerHop)
+        end
         return
     end
 
-    local queued, queueError = queueScriptForTeleport(searchingForTree)
+    local queued, queueError = queueScriptForTeleport(
+        queuedSearchMode,
+        queuedSearchMode
+    )
     queueing = false
 
     if not queued then
+        hopTaskRunning = false
         if serverHop.Parent then
-            serverHop.Text = "Server Hop"
+            if treeSearchMode then
+                task.defer(beginServerHop)
+            else
+                serverHop.Text = "Server Hop"
+            end
         end
-        warn("Spooky Tree Tools: " .. queueError)
+        if treeSearchMode == queuedSearchMode then
+            warn("Spooky Tree Tools: " .. queueError)
+        end
         return
     end
+    if queuedSearchMode ~= treeSearchMode then
+        hopTaskRunning = false
+        if treeSearchMode then
+            task.defer(beginServerHop)
+        else
+            queueing = true
+            queueScriptForTeleport(nil, nil)
+            queueing = false
+            if treeSearchMode then
+                task.defer(beginServerHop)
+            end
+        end
+        return
+    end
+    local queuedSearchModeApplied = queuedSearchMode
 
     hopping = true
+    hopIsAutoSearch = queuedSearchMode ~= nil
     serverHop.Text = "Finding server..."
 
     local placeId = game.PlaceId
     local currentJobId = game.JobId
-    local attemptedServers = {
-        [currentJobId] = true
-    }
+    markServerVisited(placeId, currentJobId)
     local cursor = nil
+    local lastCursor = nil
+    local apiFailures = 0
 
     while hopping and serverHop.Parent do
-        if searchingForTree then
-            local found, treeType = hasSpookyTree()
+        if hopIsAutoSearch and not treeSearchMode then
+            hopping = false
+            break
+        end
+
+        if treeSearchMode then
+            local found, treeType = hasSpookyTree(treeSearchMode)
             if found then
                 hopping = false
                 stopTreeSearch(true, treeType)
@@ -1270,8 +1405,12 @@ local function beginServerHop()
         end)
 
         if not success then
+            apiFailures = apiFailures + 1
             serverHop.Text = "Search failed; retrying..."
-            task.wait(2)
+            local retryDelay = math.min(2 ^ apiFailures, 30)
+            warn("Spooky Tree Tools: Server list request failed: "
+                .. tostring(result))
+            task.wait(retryDelay)
         else
             local decodeSuccess, data = pcall(function()
                 return HttpService:JSONDecode(result)
@@ -1279,15 +1418,30 @@ local function beginServerHop()
 
             if not decodeSuccess or type(data) ~= "table"
                 or type(data.data) ~= "table" then
+                apiFailures = apiFailures + 1
                 serverHop.Text = "Invalid server list; retrying..."
                 local responseSummary = tostring(result)
                 warn(
                     "Spooky Tree Tools: Server API returned an invalid list: "
                     .. string.sub(responseSummary, 1, 300)
                 )
-                task.wait(2)
+                task.wait(math.min(2 ^ apiFailures, 30))
             else
-                cursor = data.nextPageCursor
+                apiFailures = 0
+                local nextCursor = data.nextPageCursor
+                if nextCursor ~= nil and type(nextCursor) ~= "string" then
+                    warn("Spooky Tree Tools: Server API returned an invalid page cursor.")
+                    cursor = nil
+                    lastCursor = nil
+                    task.wait(HOP_RETRY_DELAY)
+                elseif nextCursor and nextCursor == lastCursor then
+                    warn("Spooky Tree Tools: Server API repeated a page cursor; restarting pagination.")
+                    cursor = nil
+                    lastCursor = nil
+                    task.wait(HOP_RETRY_DELAY)
+                else
+                cursor = nextCursor
+                lastCursor = nextCursor
                 local attemptedServer = false
 
                 for _, server in ipairs(data.data) do
@@ -1301,10 +1455,27 @@ local function beginServerHop()
                         and type(server.maxPlayers) == "number"
                         and server.id ~= currentJobId
                         and server.playing < server.maxPlayers
-                        and not attemptedServers[server.id] then
+                        and not hasVisitedServer(placeId, server.id) then
                         attemptedServer = true
-                        attemptedServers[server.id] = true
+                        markServerVisited(placeId, server.id)
                         serverHop.Text = "Trying another server..."
+
+                        if treeSearchMode ~= queuedSearchModeApplied then
+                            queueing = true
+                            local modeQueued, modeQueueError =
+                                queueScriptForTeleport(
+                                    treeSearchMode,
+                                    treeSearchMode
+                                )
+                            queueing = false
+                            if not modeQueued then
+                                warn("Spooky Tree Tools: Could not update queued search mode: "
+                                    .. tostring(modeQueueError))
+                                hopping = false
+                                break
+                            end
+                            queuedSearchModeApplied = treeSearchMode
+                        end
 
                         local failureRaised = false
                         local failureConnection =
@@ -1328,8 +1499,8 @@ local function beginServerHop()
                         if teleportSuccess then
                             local startedAt = os.clock()
                             repeat
-                                if searchingForTree then
-                                    local found, treeType = hasSpookyTree()
+                                if treeSearchMode then
+                                    local found, treeType = hasSpookyTree(treeSearchMode)
                                     if found then
                                         hopping = false
                                         stopTreeSearch(true, treeType)
@@ -1340,7 +1511,7 @@ local function beginServerHop()
                                 task.wait(0.25)
                             until failureRaised or not hopping
                                 or not serverHop.Parent
-                                or os.clock() - startedAt >= 15
+                                or os.clock() - startedAt >= 45
                         end
                         failureConnection:Disconnect()
 
@@ -1366,51 +1537,133 @@ local function beginServerHop()
                 if not attemptedServer then
                     if cursor then
                         serverHop.Text = "Checking more servers..."
+                        task.wait(0.5)
                     else
-                        serverHop.Text = "No working server; searching again..."
-                        task.wait(3)
+                        serverHop.Text = "No new servers; retrying..."
+                        task.wait(HOP_RETRY_DELAY)
                     end
+                end
                 end
             end
         end
     end
 
     hopping = false
+    hopIsAutoSearch = false
+    hopTaskRunning = false
+    if treeSearchMode and serverHop.Parent then
+        task.defer(beginServerHop)
+    end
 end
 
 serverHop.MouseButton1Click:Connect(beginServerHop)
 
-treeSearchButton.MouseButton1Click:Connect(function()
-    if searchingForTree then
-        searchingForTree = false
-        writeAutoSearchFlag(false)
+local function setTreeSearchMode(mode)
+    if treeSearchMode == mode then
+        mode = nil
+    end
+
+    local wasAutoSearch = hopIsAutoSearch
+    treeSearchMode = mode
+    if not writeAutoSearchMode(mode) then
+        treeSearchMode = nil
+        hopping = false
+        hopIsAutoSearch = false
         treeSearchButton.Text = "Find Spooky Tree: OFF"
-        if hopping then
+        treeSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+        neonSearchButton.Text = "Find Spooky Neon: OFF"
+        neonSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+        warn("Spooky Tree Tools: Persistent search requires getgenv support.")
+        return
+    end
+
+    treeSearchButton.Text = mode == "spooky"
+        and "Find Spooky Tree: ON"
+        or "Find Spooky Tree: OFF"
+    treeSearchButton.BackgroundColor3 = mode == "spooky"
+        and Color3.fromRGB(51, 87, 130)
+        or Color3.fromRGB(39, 70, 108)
+    neonSearchButton.Text = mode == "spookyneon"
+        and "Find Spooky Neon: ON"
+        or "Find Spooky Neon: OFF"
+    neonSearchButton.BackgroundColor3 = mode == "spookyneon"
+        and Color3.fromRGB(51, 87, 130)
+        or Color3.fromRGB(39, 70, 108)
+
+    if mode and hopping then
+        hopIsAutoSearch = true
+    end
+
+    if not mode then
+        if wasAutoSearch then
             hopping = false
+            hopIsAutoSearch = false
+            task.spawn(function()
+                while queueing and serverHop.Parent do
+                    task.wait(0.05)
+                end
+                if not serverHop.Parent then
+                    return
+                end
+
+                queueing = true
+                local queued, queueError = queueScriptForTeleport(nil)
+                queueing = false
+                if not queued then
+                    warn("Spooky Tree Tools: Could not clear queued search mode: "
+                        .. tostring(queueError))
+                end
+                if treeSearchMode then
+                    task.defer(beginServerHop)
+                end
+            end)
         end
         serverHop.Text = "Server Hop"
         return
     end
 
-    searchingForTree = true
-    if not writeAutoSearchFlag(true) then
-        searchingForTree = false
-        treeSearchButton.Text = "Find Spooky Tree: OFF"
-        warn("Spooky Tree Tools: Persistent search requires getgenv support.")
-        return
-    end
-
-    treeSearchButton.Text = "Find Spooky Tree: ON"
-    local found, treeType = hasSpookyTree()
+    local found, treeType = hasSpookyTree(mode)
     if found then
         stopTreeSearch(true, treeType)
     else
         task.spawn(beginServerHop)
     end
+end
+
+closeCleanup = function()
+    if not treeSearchMode then
+        return
+    end
+
+    treeSearchMode = nil
+    writeAutoSearchMode(nil)
+    hopping = false
+    hopIsAutoSearch = false
+end
+
+treeSearchButton.MouseButton1Click:Connect(function()
+    setTreeSearchMode("spooky")
 end)
 
-if searchingForTree then
-    local found, treeType = hasSpookyTree()
+neonSearchButton.MouseButton1Click:Connect(function()
+    setTreeSearchMode("spookyneon")
+end)
+
+if treeSearchMode then
+    treeSearchButton.Text = treeSearchMode == "spooky"
+        and "Find Spooky Tree: ON"
+        or "Find Spooky Tree: OFF"
+    treeSearchButton.BackgroundColor3 = treeSearchMode == "spooky"
+        and Color3.fromRGB(51, 87, 130)
+        or Color3.fromRGB(39, 70, 108)
+    neonSearchButton.Text = treeSearchMode == "spookyneon"
+        and "Find Spooky Neon: ON"
+        or "Find Spooky Neon: OFF"
+    neonSearchButton.BackgroundColor3 = treeSearchMode == "spookyneon"
+        and Color3.fromRGB(51, 87, 130)
+        or Color3.fromRGB(39, 70, 108)
+
+    local found, treeType = hasSpookyTree(treeSearchMode)
     if found then
         stopTreeSearch(true, treeType)
     else
@@ -1426,7 +1679,12 @@ local function hover(button)
     end)
 
     button.MouseLeave:Connect(function()
-        button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+        local isActive = (button == flyButton and flyEnabled)
+            or (button == treeSearchButton and treeSearchMode == "spooky")
+            or (button == neonSearchButton and treeSearchMode == "spookyneon")
+        button.BackgroundColor3 = isActive
+            and Color3.fromRGB(51, 87, 130)
+            or Color3.fromRGB(39, 70, 108)
     end)
 
 end
@@ -1437,9 +1695,12 @@ hover(flyButton)
 hover(setWalkSpeedButton)
 hover(serverHop)
 hover(treeSearchButton)
+hover(neonSearchButton)
 end
 
-if hasSavedAuthorization() then
+if playerGui:FindFirstChild("SpookyTreeTools") then
+    return
+elseif hasSavedAuthorization() then
     loadMenu()
 else
     showKeyScreen()
