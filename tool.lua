@@ -5,6 +5,8 @@ local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
+local SoundService = game:GetService("SoundService")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local playerGui = player:WaitForChild("PlayerGui")
@@ -38,6 +40,8 @@ local searchingForTree = readAutoSearchFlag()
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
+local EXCLUSIVE_AUDIO_KEY = "SPOOKY-7K4M-9Q2X-1R8P"
+local TREE_FOUND_SOUND_ID = "rbxassetid://116841974988859"
 
 local VALID_SCRIPT_KEYS = {
     ["SPOOKY-7K4M-9Q2X-1R8P"] = true, -- vlex key
@@ -59,6 +63,7 @@ local VALID_SCRIPT_KEYS = {
 
 local loadMenu
 local KEY_FILE_PATH = "SpookyTreeTools.key"
+local authorizedScriptKey
 
 local function normalizeScriptKey(value)
     if type(value) ~= "string" then
@@ -74,6 +79,7 @@ local function readSavedScriptKey()
         if success then
             key = normalizeScriptKey(key)
             if VALID_SCRIPT_KEYS[key] then
+                authorizedScriptKey = key
                 return key
             end
         end
@@ -84,6 +90,7 @@ local function readSavedScriptKey()
         if success and type(environment) == "table" then
             local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
             if VALID_SCRIPT_KEYS[key] then
+                authorizedScriptKey = key
                 return key
             end
         end
@@ -108,6 +115,8 @@ local function hasSavedAuthorization()
 end
 
 local function saveAuthorization(key)
+    authorizedScriptKey = key
+
     local savedToFile = false
     if type(writefile) == "function" then
         local success, err = pcall(writefile, KEY_FILE_PATH, key)
@@ -366,12 +375,34 @@ local knownTreeClasses = {}
 local selectedTree = nil
 local treeFoundNotified = false
 
+local function playExclusiveTreeFoundSound()
+    if authorizedScriptKey ~= EXCLUSIVE_AUDIO_KEY then
+        return
+    end
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = TREE_FOUND_SOUND_ID
+    sound.Volume = 1
+    sound.Parent = SoundService
+    Debris:AddItem(sound, 15)
+
+    local success, err = pcall(function()
+        SoundService:PlayLocalSound(sound)
+    end)
+    if not success then
+        sound:Destroy()
+        warn("Spooky Tree Tools: Could not play exclusive tree-found sound: "
+            .. tostring(err))
+    end
+end
+
 local function notifyTreeFound(treeType)
     if treeFoundNotified then
         return
     end
 
     treeFoundNotified = true
+    playExclusiveTreeFoundSound()
 
     task.spawn(function()
         for attempt = 1, 10 do
