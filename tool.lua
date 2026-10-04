@@ -1,4 +1,8 @@
 --URL SUPPORT :PRAY:
+if game.PlaceId ~= 13822889 then
+    return
+end
+
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
@@ -7,6 +11,46 @@ local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
+local GuiService = game:GetService("GuiService")
+
+local DISCORD_INVITE_URL = "https://discord.gg/65VCr7eCVk"
+
+local function createDiscordButton(parent, position)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.fromOffset(310, 38)
+    button.Position = position
+    button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    button.BorderSizePixel = 1
+    button.BorderColor3 = Color3.fromRGB(67, 104, 150)
+    button.Text = "Join Discord"
+    button.TextColor3 = Color3.fromRGB(225, 235, 245)
+    button.TextSize = 16
+    button.Font = Enum.Font.Arial
+    button.AutoButtonColor = false
+    button.Parent = parent
+
+    button.MouseButton1Click:Connect(function()
+        local success, err = pcall(function()
+            GuiService:OpenBrowserWindow(DISCORD_INVITE_URL)
+        end)
+
+        if not success then
+            warn("Spooky Tree Tools: Could not open Discord invite "
+                .. DISCORD_INVITE_URL
+                .. ": "
+                .. tostring(err))
+        end
+    end)
+
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = Color3.fromRGB(51, 87, 130)
+    end)
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    end)
+
+    return button
+end
 
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local playerGui = player:WaitForChild("PlayerGui")
@@ -155,8 +199,8 @@ local function showKeyScreen()
     keyGui.Parent = playerGui
 
     local panel = Instance.new("Frame")
-    panel.Size = UDim2.fromOffset(340, 175)
-    panel.Position = UDim2.new(0.5, -170, 0.5, -87)
+    panel.Size = UDim2.fromOffset(340, 220)
+    panel.Position = UDim2.new(0.5, -170, 0.5, -110)
     panel.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
     panel.BorderSizePixel = 1
     panel.BorderColor3 = Color3.fromRGB(65, 100, 145)
@@ -210,6 +254,8 @@ local function showKeyScreen()
     submit.AutoButtonColor = true
     submit.Parent = panel
 
+    createDiscordButton(panel, UDim2.fromOffset(15, 170))
+
     local submitting = false
     local function validateKey()
         if submitting then
@@ -246,7 +292,7 @@ gui.Parent = playerGui
 
 local main = Instance.new("Frame")
 main.Name = "Window"
-main.Size = UDim2.fromOffset(390, 429)
+main.Size = UDim2.fromOffset(390, 476)
 main.Position = UDim2.new(0, 30, 0, 120)
 main.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
 main.BorderSizePixel = 1
@@ -1178,6 +1224,8 @@ neonSearchButton.TextSize = 16
 neonSearchButton.Font = Enum.Font.Arial
 neonSearchButton.AutoButtonColor = false
 neonSearchButton.Parent = main
+
+createDiscordButton(main, UDim2.fromOffset(15, 425))
 
 local function getVisitedServerState(placeId)
     local placeKey = tostring(placeId)
