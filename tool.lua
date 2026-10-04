@@ -1,5 +1,3 @@
---// Spooky Tree Tools
---// Debug-style UI
 --URL SUPPORT :PRAY:
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
@@ -41,16 +39,195 @@ local searchingForTree = readAutoSearchFlag()
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
 
---==================================================
--- GUI
---==================================================
+local VALID_SCRIPT_KEYS = {
+    ["SPOOKY-7K4M-9Q2X-1R8P"] = true, -- vlex key
+    ["SPOOKY-3V6N-8B5L-0C2D"] = true,
+    ["SPOOKY-9F1H-4W7J-6T3A"] = true,
+    ["SPOOKY-2P8R-5Y0K-3M7N"] = true,
+    ["SPOOKY-6D4C-1X9V-8L2H"] = true,
+    ["SPOOKY-0J3Q-7A5F-2N9W"] = true,
+    ["SPOOKY-8L2T-6M1P-4C7Y"] = true,
+    ["SPOOKY-5N9B-3R0D-7H1X"] = true,
+    ["SPOOKY-1W6K-8Q4A-9V2J"] = true,
+    ["SPOOKY-4C7P-2Y5M-0D8L"] = true,
+    ["SPOOKY-7H1X-9N3B-5R0D"] = true,
+    ["SPOOKY-3M8V-6J2Q-1A4F"] = true,
+    ["SPOOKY-9T5L-0C7Y-4P2N"] = true,
+    ["SPOOKY-2A6D-8X1W-3K9H"] = true,
+    ["SPOOKY-6Q4J-1B7M-9F2C"] = true
+}
 
+local loadMenu
+local KEY_FILE_PATH = "SpookyTreeTools.key"
+
+local function normalizeScriptKey(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+
+    return string.upper(string.match(value, "^%s*(.-)%s*$") or "")
+end
+
+local function readSavedScriptKey()
+    if type(readfile) == "function" then
+        local success, key = pcall(readfile, KEY_FILE_PATH)
+        if success then
+            key = normalizeScriptKey(key)
+            if VALID_SCRIPT_KEYS[key] then
+                return key
+            end
+        end
+    end
+
+    if type(getgenv) == "function" then
+        local success, environment = pcall(getgenv)
+        if success and type(environment) == "table" then
+            local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
+            if VALID_SCRIPT_KEYS[key] then
+                return key
+            end
+        end
+    end
+
+    return nil
+end
+
+local function hasSavedAuthorization()
+    if readSavedScriptKey() then
+        return true
+    end
+
+    if type(getgenv) ~= "function" then
+        return false
+    end
+
+    local success, environment = pcall(getgenv)
+    return success
+        and type(environment) == "table"
+        and environment.SpookyTreeAuthorized == true
+end
+
+local function saveAuthorization(key)
+    local savedToFile = false
+    if type(writefile) == "function" then
+        local success, err = pcall(writefile, KEY_FILE_PATH, key)
+        if success then
+            savedToFile = true
+        else
+            warn("Spooky Tree Tools: Could not save key file: " .. tostring(err))
+        end
+    end
+
+    if type(getgenv) == "function" then
+        local success, environment = pcall(getgenv)
+        if success and type(environment) == "table" then
+            environment.SpookyTreeSavedKey = key
+            environment.SpookyTreeAuthorized = true
+        end
+    end
+
+    if not savedToFile then
+        warn("Spooky Tree Tools: Key is saved for this executor session only; "
+            .. "persistent saving requires writefile support.")
+    end
+end
+
+local function showKeyScreen()
+    local keyGui = Instance.new("ScreenGui")
+    keyGui.Name = "SpookyTreeKeyPrompt"
+    keyGui.ResetOnSpawn = false
+    keyGui.Parent = playerGui
+
+    local panel = Instance.new("Frame")
+    panel.Size = UDim2.fromOffset(340, 175)
+    panel.Position = UDim2.new(0.5, -170, 0.5, -87)
+    panel.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
+    panel.BorderSizePixel = 1
+    panel.BorderColor3 = Color3.fromRGB(65, 100, 145)
+    panel.Parent = keyGui
+
+    local heading = Instance.new("TextLabel")
+    heading.Size = UDim2.new(1, -20, 0, 35)
+    heading.Position = UDim2.fromOffset(10, 8)
+    heading.BackgroundTransparency = 1
+    heading.Text = "Spooky Tools - Enter Key"
+    heading.TextColor3 = Color3.fromRGB(225, 235, 245)
+    heading.TextSize = 18
+    heading.Font = Enum.Font.Arial
+    heading.Parent = panel
+
+    local keyInput = Instance.new("TextBox")
+    keyInput.Size = UDim2.new(1, -30, 0, 38)
+    keyInput.Position = UDim2.fromOffset(15, 52)
+    keyInput.BackgroundColor3 = Color3.fromRGB(25, 34, 45)
+    keyInput.BorderSizePixel = 1
+    keyInput.BorderColor3 = Color3.fromRGB(67, 104, 150)
+    keyInput.PlaceholderText = "Enter script key"
+    keyInput.Text = ""
+    keyInput.ClearTextOnFocus = false
+    keyInput.TextColor3 = Color3.fromRGB(225, 235, 245)
+    keyInput.PlaceholderColor3 = Color3.fromRGB(150, 165, 180)
+    keyInput.TextSize = 15
+    keyInput.Font = Enum.Font.Arial
+    keyInput.Parent = panel
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -30, 0, 20)
+    status.Position = UDim2.fromOffset(15, 93)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.TextColor3 = Color3.fromRGB(255, 125, 125)
+    status.TextSize = 13
+    status.Font = Enum.Font.Arial
+    status.Parent = panel
+
+    local submit = Instance.new("TextButton")
+    submit.Size = UDim2.new(1, -30, 0, 38)
+    submit.Position = UDim2.fromOffset(15, 122)
+    submit.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    submit.BorderSizePixel = 1
+    submit.BorderColor3 = Color3.fromRGB(67, 104, 150)
+    submit.Text = "Unlock"
+    submit.TextColor3 = Color3.fromRGB(225, 235, 245)
+    submit.TextSize = 16
+    submit.Font = Enum.Font.Arial
+    submit.AutoButtonColor = true
+    submit.Parent = panel
+
+    local submitting = false
+    local function validateKey()
+        if submitting then
+            return
+        end
+        submitting = true
+
+        local key = normalizeScriptKey(keyInput.Text)
+        if not VALID_SCRIPT_KEYS[key] then
+            status.Text = "Invalid key. Please try again."
+            submitting = false
+            return
+        end
+
+        saveAuthorization(key)
+        keyGui:Destroy()
+        loadMenu()
+    end
+
+    submit.MouseButton1Click:Connect(validateKey)
+    keyInput.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            validateKey()
+        end
+    end)
+end
+
+loadMenu = function()
 local gui = Instance.new("ScreenGui")
 gui.Name = "SpookyTreeTools"
 gui.ResetOnSpawn = false
 gui.Parent = playerGui
 
--- Main window
+
 local main = Instance.new("Frame")
 main.Name = "Window"
 main.Size = UDim2.fromOffset(390, 382)
@@ -61,17 +238,12 @@ main.BorderColor3 = Color3.fromRGB(65, 100, 145)
 main.ClipsDescendants = true
 main.Parent = gui
 
---==================================================
--- TITLE BAR
---==================================================
-
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 34)
 titleBar.BackgroundColor3 = Color3.fromRGB(43, 79, 125)
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 
--- Left triangle
 local arrow = Instance.new("TextLabel")
 arrow.Size = UDim2.fromOffset(32, 34)
 arrow.Position = UDim2.fromOffset(4, 0)
@@ -82,7 +254,6 @@ arrow.TextSize = 17
 arrow.Font = Enum.Font.Arial
 arrow.Parent = titleBar
 
--- Title
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -75, 1, 0)
 title.Position = UDim2.fromOffset(38, 0)
@@ -94,7 +265,6 @@ title.Font = Enum.Font.Arial
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = titleBar
 
--- Close button
 local close = Instance.new("TextButton")
 close.Size = UDim2.fromOffset(34, 34)
 close.Position = UDim2.new(1, -38, 0, 0)
@@ -160,10 +330,6 @@ close.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
---==================================================
--- DRAGGING
---==================================================
-
 local dragging = false
 local dragStart
 local startPosition
@@ -194,10 +360,6 @@ UserInputService.InputChanged:Connect(function(input)
         )
     end
 end)
-
---==================================================
--- TREE SYSTEM
---==================================================
 
 local highlightedTrees = {}
 local knownTreeClasses = {}
@@ -490,10 +652,6 @@ workspace.DescendantRemoving:Connect(function(instance)
     end
 end)
 
---==================================================
--- TREE SELECTOR
---==================================================
-
 local selector = Instance.new("TextButton")
 selector.Size = UDim2.fromOffset(300, 38)
 selector.Position = UDim2.fromOffset(15, 50)
@@ -508,12 +666,10 @@ selector.TextXAlignment = Enum.TextXAlignment.Left
 selector.AutoButtonColor = false
 selector.Parent = main
 
--- selector padding
 local selectorPadding = Instance.new("UIPadding")
 selectorPadding.PaddingLeft = UDim.new(0, 10)
 selectorPadding.Parent = selector
 
--- small arrow
 local selectorArrow = Instance.new("TextLabel")
 selectorArrow.Size = UDim2.fromOffset(25, 38)
 selectorArrow.Position = UDim2.new(1, -30, 0, 0)
@@ -523,10 +679,6 @@ selectorArrow.TextColor3 = Color3.fromRGB(220, 230, 240)
 selectorArrow.TextSize = 13
 selectorArrow.Font = Enum.Font.Arial
 selectorArrow.Parent = selector
-
---==================================================
--- TREE LIST
---==================================================
 
 local treeList = Instance.new("ScrollingFrame")
 treeList.Size = UDim2.fromOffset(300, 100)
@@ -671,10 +823,6 @@ selector.MouseButton1Click:Connect(function()
 
 end)
 
---==================================================
--- TELEPORT BUTTON
---==================================================
-
 local teleportButton = Instance.new("TextButton")
 teleportButton.Size = UDim2.fromOffset(300, 38)
 teleportButton.Position = UDim2.fromOffset(15, 143)
@@ -718,10 +866,6 @@ teleportButton.MouseButton1Click:Connect(function()
     end
 
 end)
-
---==================================================
--- MOVEMENT CONTROLS
---==================================================
 
 flyButton = Instance.new("TextButton")
 flyButton.Size = UDim2.fromOffset(300, 38)
@@ -924,9 +1068,6 @@ characterAddedConnection = player.CharacterAdded:Connect(function(character)
     end
 end)
 
---==================================================
--- SERVER HOP
---==================================================
 
 local serverHop = Instance.new("TextButton")
 serverHop.Size = UDim2.fromOffset(300, 38)
@@ -963,6 +1104,10 @@ local function queueScriptForTeleport(continueTreeSearch)
     local queuedSource = "loadstring(game:HttpGet("
         .. HttpService:JSONEncode(SCRIPT_URL)
         .. "))()"
+
+    queuedSource = "if type(getgenv) == 'function' then "
+        .. "getgenv().SpookyTreeAuthorized = true end; "
+        .. queuedSource
 
     if continueTreeSearch then
         queuedSource = "getgenv().SpookyTreeAutoSearch = true; "
@@ -1242,9 +1387,6 @@ if searchingForTree then
     end
 end
 
---==================================================
--- HOVER EFFECT
---==================================================
 
 local function hover(button)
 
@@ -1264,3 +1406,10 @@ hover(flyButton)
 hover(setWalkSpeedButton)
 hover(serverHop)
 hover(treeSearchButton)
+end
+
+if hasSavedAuthorization() then
+    loadMenu()
+else
+    showKeyScreen()
+end
