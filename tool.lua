@@ -15,6 +15,9 @@ local GuiService = game:GetService("GuiService")
 
 local DISCORD_INVITE_URL = "https://discord.gg/65VCr7eCVk"
 local showWebhookMenu
+local resendWebhookForFoundTree
+local webhookAlertSent = false
+local webhookAlertInFlight = false
 local WEBHOOK_FILE_PATH = "SpookyTreeTools.webhook"
 
 local function createDiscordButton(parent, position, width)
@@ -182,6 +185,10 @@ end
             environment.SpookyTreeWebhookUrl = url
         end
 
+        if resendWebhookForFoundTree then
+            resendWebhookForFoundTree()
+        end
+
         if type(writefile) == "function" then
             local success, err = pcall(writefile, WEBHOOK_FILE_PATH, url)
             if success then
@@ -198,6 +205,9 @@ end
         if not webhookUrl then
             return
         end
+        if webhookAlertSent or webhookAlertInFlight then
+            return
+        end
 
         local requestFunction = findRequestFunction()
         if not requestFunction then
@@ -205,6 +215,7 @@ end
                 .. "does not expose a supported HTTP request function.")
             return
         end
+        webhookAlertInFlight = true
 
         local position
         if target and target:IsA("Model") then
@@ -257,12 +268,28 @@ end
                 if success then
                     local statusCode = type(response) == "table"
                         and (response.StatusCode or response.Status)
-                    if statusCode == nil or statusCode == 200 or statusCode == 204 then
+                    statusCode = tonumber(statusCode)
+                        or tonumber(type(statusCode) == "string"
+                            and string.match(statusCode, "^%s*(%d+)")
+                            or nil)
+                    if statusCode == 200 or statusCode == 204 then
+                        webhookAlertSent = true
+                        webhookAlertInFlight = false
                         return
                     end
                     if attempt == 3 then
                         warn("Spooky Tree Tools: Webhook request returned HTTP "
-                            .. tostring(statusCode) .. ".")
+                            .. tostring(statusCode or "an unknown status")
+                            .. (type(response) == "table"
+                                and response.StatusMessage
+                                and (": " .. tostring(response.StatusMessage))
+                                or "")
+                            .. (type(response) == "table"
+                                and type(response.Body) == "string"
+                                and response.Body ~= ""
+                                and (": " .. string.sub(response.Body, 1, 300))
+                                or "")
+                            .. ".")
                     end
                 elseif attempt == 3 then
                     warn("Spooky Tree Tools: Webhook request failed: "
@@ -273,6 +300,7 @@ end
                     task.wait(attempt * 2)
                 end
             end
+            webhookAlertInFlight = false
         end)
     end
 
@@ -979,6 +1007,8 @@ local function playExclusiveTreeFoundSound()
 end
 
 local function notifyTreeFound(treeType, target)
+    sendWebhookAlert(treeType, target)
+
     if treeFoundNotified or (currentJobId ~= "" and notifiedJobs[currentJobId]) then
         return
     end
@@ -988,8 +1018,6 @@ local function notifyTreeFound(treeType, target)
         notifiedJobs[currentJobId] = true
     end
     playExclusiveTreeFoundSound()
-    sendWebhookAlert(treeType, target)
-
     task.spawn(function()
         for attempt = 1, 10 do
             local success, err = pcall(function()
@@ -1248,6 +1276,22 @@ local function addHighlight(treeClass)
         value == "spookyneon" and "Spooky Neon" or "spooky",
         target
     )
+end
+
+resendWebhookForFoundTree = function()
+    for treeClass, target in pairs(highlightedTrees) do
+        if treeClass.Parent and target and target.Parent
+            and isEligibleTreeTarget(target) then
+            local value = string.lower(treeClass.Value)
+            if value == "spooky" or value == "spookyneon" then
+                sendWebhookAlert(
+                    value == "spookyneon" and "Spooky Neon" or "spooky",
+                    target
+                )
+                return
+            end
+        end
+    end
 end
 
 local watchedOwners = {}
