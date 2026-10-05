@@ -14,10 +14,12 @@ local Debris = game:GetService("Debris")
 local GuiService = game:GetService("GuiService")
 
 local DISCORD_INVITE_URL = "https://discord.gg/65VCr7eCVk"
+local showWebhookMenu
+local WEBHOOK_FILE_PATH = "SpookyTreeTools.webhook"
 
-local function createDiscordButton(parent, position)
+local function createDiscordButton(parent, position, width)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.fromOffset(310, 38)
+    button.Size = UDim2.fromOffset(width or 310, 38)
     button.Position = position
     button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
     button.BorderSizePixel = 1
@@ -52,6 +54,36 @@ local function createDiscordButton(parent, position)
     return button
 end
 
+local function createWebhookButton(parent, position, width)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.fromOffset(width, 38)
+    button.Position = position
+    button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    button.BorderSizePixel = 1
+    button.BorderColor3 = Color3.fromRGB(67, 104, 150)
+    button.Text = "Webhook"
+    button.TextColor3 = Color3.fromRGB(225, 235, 245)
+    button.TextSize = 16
+    button.Font = Enum.Font.Arial
+    button.AutoButtonColor = false
+    button.Parent = parent
+
+    button.MouseButton1Click:Connect(function()
+        if showWebhookMenu then
+            showWebhookMenu()
+        end
+    end)
+
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = Color3.fromRGB(51, 87, 130)
+    end)
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+    end)
+
+    return button
+end
+
 local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -67,6 +99,291 @@ local function getExecutorEnvironment()
 
     return nil
 end
+
+    local function isDiscordWebhookUrl(url)
+        if type(url) ~= "string" then
+            return false
+        end
+
+        url = string.match(url, "^%s*(.-)%s*$") or ""
+        return string.match(
+                url,
+                "^https://discord%.com/api/webhooks/%d+/[%w_%-%.]+$"
+            ) ~= nil
+            or string.match(
+                url,
+                "^https://discordapp%.com/api/webhooks/%d+/[%w_%-%.]+$"
+            ) ~= nil
+    end
+
+    local function findRequestFunction()
+        local environment = getExecutorEnvironment()
+        if environment then
+            if type(environment.request) == "function" then
+                return environment.request
+            end
+            if type(environment.http_request) == "function" then
+                return environment.http_request
+            end
+            if type(environment.syn) == "table"
+                and type(environment.syn.request) == "function" then
+                return environment.syn.request
+            end
+        end
+
+        if type(request) == "function" then
+            return request
+        end
+        if type(http_request) == "function" then
+            return http_request
+        end
+        if type(syn) == "table" and type(syn.request) == "function" then
+            return syn.request
+        end
+        if type(http) == "table" and type(http.request) == "function" then
+            return http.request
+        end
+
+        return nil
+    end
+
+    local webhookUrl
+    local function readSavedWebhook()
+        local environment = getExecutorEnvironment()
+        if environment and isDiscordWebhookUrl(environment.SpookyTreeWebhookUrl) then
+            return environment.SpookyTreeWebhookUrl
+        end
+
+        if type(readfile) == "function" then
+            local success, savedUrl = pcall(readfile, WEBHOOK_FILE_PATH)
+            if success and savedUrl ~= "" then
+                if isDiscordWebhookUrl(savedUrl) then
+                    return string.match(savedUrl, "^%s*(.-)%s*$")
+                end
+                warn("Spooky Tree Tools: Saved webhook URL is invalid; "
+                    .. "re-enter it from the webhook menu.")
+            end
+        end
+
+        return nil
+    end
+
+    webhookUrl = readSavedWebhook()
+
+    local function saveWebhookUrl(url)
+        url = string.match(url, "^%s*(.-)%s*$") or ""
+        if not isDiscordWebhookUrl(url) then
+            return false, "Enter a valid Discord webhook URL."
+        end
+
+        webhookUrl = url
+        local environment = getExecutorEnvironment()
+        if environment then
+            environment.SpookyTreeWebhookUrl = url
+        end
+
+        if type(writefile) == "function" then
+            local success, err = pcall(writefile, WEBHOOK_FILE_PATH, url)
+            if success then
+                return true, "Webhook saved on this executor."
+            end
+            warn("Spooky Tree Tools: Could not save webhook URL: " .. tostring(err))
+            return true, "Webhook set for this session only; persistent save failed."
+        end
+
+        return true, "Webhook set for this session only; file saving is unavailable."
+    end
+
+    local function sendWebhookAlert(treeType, target)
+        if not webhookUrl then
+            return
+        end
+
+        local requestFunction = findRequestFunction()
+        if not requestFunction then
+            warn("Spooky Tree Tools: Webhook is configured, but this executor "
+                .. "does not expose a supported HTTP request function.")
+            return
+        end
+
+        local position
+        if target and target:IsA("Model") then
+            position = target:GetPivot().Position
+        elseif target and target:IsA("BasePart") then
+            position = target.Position
+        end
+
+        local coordinates = position
+            and string.format("X: %.2f  |  Y: %.2f  |  Z: %.2f",
+                position.X, position.Y, position.Z)
+            or "Unavailable"
+        local isNeon = treeType == "Spooky Neon"
+        local body = HttpService:JSONEncode({
+            content = "@everyone",
+            allowed_mentions = { parse = { "everyone" } },
+            username = "Spooky Tree Finder",
+            embeds = {
+                {
+                    title = isNeon and "Spooky Neon Found!" or "Spooky Tree Found!",
+                    description = "A **" .. treeType .. "** tree was found.",
+                    color = isNeon and 65535 or 16742440,
+                    fields = {
+                        {
+                            name = "World Position",
+                            value = "```" .. coordinates .. "```",
+                            inline = false
+                        },
+                        {
+                            name = "Place ID",
+                            value = tostring(game.PlaceId),
+                            inline = true
+                        }
+                    },
+                    footer = { text = "Spooky Tree Tools" },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                }
+            }
+        })
+
+        task.spawn(function()
+            for attempt = 1, 3 do
+                local success, response = pcall(requestFunction, {
+                    Url = webhookUrl,
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = body,
+                    Timeout = 10
+                })
+                if success then
+                    local statusCode = type(response) == "table"
+                        and (response.StatusCode or response.Status)
+                    if statusCode == nil or statusCode == 200 or statusCode == 204 then
+                        return
+                    end
+                    if attempt == 3 then
+                        warn("Spooky Tree Tools: Webhook request returned HTTP "
+                            .. tostring(statusCode) .. ".")
+                    end
+                elseif attempt == 3 then
+                    warn("Spooky Tree Tools: Webhook request failed: "
+                        .. tostring(response))
+                end
+
+                if attempt < 3 then
+                    task.wait(attempt * 2)
+                end
+            end
+        end)
+    end
+
+    showWebhookMenu = function()
+        local existing = playerGui:FindFirstChild("SpookyTreeWebhookConfig")
+        if existing then
+            existing:Destroy()
+        end
+
+        local menuGui = Instance.new("ScreenGui")
+        menuGui.Name = "SpookyTreeWebhookConfig"
+        menuGui.ResetOnSpawn = false
+        menuGui.DisplayOrder = 20
+        menuGui.Parent = playerGui
+
+        local panel = Instance.new("Frame")
+        panel.Size = UDim2.fromOffset(380, 250)
+        panel.Position = UDim2.new(0.5, -190, 0.5, -125)
+        panel.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
+        panel.BorderSizePixel = 1
+        panel.BorderColor3 = Color3.fromRGB(65, 100, 145)
+        panel.Parent = menuGui
+
+        local heading = Instance.new("TextLabel")
+        heading.Size = UDim2.new(1, -24, 0, 32)
+        heading.Position = UDim2.fromOffset(12, 10)
+        heading.BackgroundTransparency = 1
+        heading.Text = "Webhook Alerts"
+        heading.TextColor3 = Color3.fromRGB(225, 235, 245)
+        heading.TextSize = 19
+        heading.Font = Enum.Font.Arial
+        heading.TextXAlignment = Enum.TextXAlignment.Left
+        heading.Parent = panel
+
+        local hint = Instance.new("TextLabel")
+        hint.Size = UDim2.new(1, -24, 0, 40)
+        hint.Position = UDim2.fromOffset(12, 44)
+        hint.BackgroundTransparency = 1
+        hint.Text = "Paste a Discord webhook URL. It will @everyone once per server when a tree is found."
+        hint.TextColor3 = Color3.fromRGB(175, 190, 205)
+        hint.TextSize = 13
+        hint.TextWrapped = true
+        hint.Font = Enum.Font.Arial
+        hint.TextXAlignment = Enum.TextXAlignment.Left
+        hint.Parent = panel
+
+        local input = Instance.new("TextBox")
+        input.Size = UDim2.new(1, -24, 0, 38)
+        input.Position = UDim2.fromOffset(12, 91)
+        input.BackgroundColor3 = Color3.fromRGB(25, 34, 45)
+        input.BorderSizePixel = 1
+        input.BorderColor3 = Color3.fromRGB(67, 104, 150)
+        input.PlaceholderText = "https://discord.com/api/webhooks/..."
+        input.Text = webhookUrl or ""
+        input.ClearTextOnFocus = false
+        input.TextColor3 = Color3.fromRGB(225, 235, 245)
+        input.PlaceholderColor3 = Color3.fromRGB(150, 165, 180)
+        input.TextSize = 13
+        input.Font = Enum.Font.Arial
+        input.Parent = panel
+
+        local status = Instance.new("TextLabel")
+        status.Size = UDim2.new(1, -24, 0, 36)
+        status.Position = UDim2.fromOffset(12, 134)
+        status.BackgroundTransparency = 1
+        status.Text = "Treat this URL like a password; anyone with it can post."
+        status.TextColor3 = Color3.fromRGB(220, 190, 120)
+        status.TextSize = 12
+        status.TextWrapped = true
+        status.Font = Enum.Font.Arial
+        status.TextXAlignment = Enum.TextXAlignment.Left
+        status.Parent = panel
+
+        local saveButton = Instance.new("TextButton")
+        saveButton.Size = UDim2.fromOffset(170, 36)
+        saveButton.Position = UDim2.fromOffset(12, 196)
+        saveButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
+        saveButton.BorderSizePixel = 1
+        saveButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
+        saveButton.Text = "Confirm"
+        saveButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+        saveButton.TextSize = 15
+        saveButton.Font = Enum.Font.Arial
+        saveButton.Parent = panel
+
+        local cancelButton = Instance.new("TextButton")
+        cancelButton.Size = UDim2.fromOffset(170, 36)
+        cancelButton.Position = UDim2.fromOffset(198, 196)
+        cancelButton.BackgroundColor3 = Color3.fromRGB(54, 59, 66)
+        cancelButton.BorderSizePixel = 1
+        cancelButton.BorderColor3 = Color3.fromRGB(85, 95, 105)
+        cancelButton.Text = "Cancel"
+        cancelButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+        cancelButton.TextSize = 15
+        cancelButton.Font = Enum.Font.Arial
+        cancelButton.Parent = panel
+
+        saveButton.MouseButton1Click:Connect(function()
+            local saved, message = saveWebhookUrl(input.Text)
+            status.Text = message
+            if not saved then
+                status.TextColor3 = Color3.fromRGB(255, 125, 125)
+                return
+            end
+            menuGui:Destroy()
+        end)
+
+        cancelButton.MouseButton1Click:Connect(function()
+            menuGui:Destroy()
+        end)
+    end
 
 local function readAutoSearchMode()
     local environment = getExecutorEnvironment()
@@ -126,6 +443,7 @@ local VALID_SCRIPT_KEYS = {
 local loadMenu
 local KEY_FILE_PATH = "SpookyTreeTools.key"
 local authorizedScriptKey
+local lastAuthorizationError
 
 local function normalizeScriptKey(value)
     if type(value) ~= "string" then
@@ -135,45 +453,133 @@ local function normalizeScriptKey(value)
     return string.upper(string.match(value, "^%s*(.-)%s*$") or "")
 end
 
-local function readSavedScriptKey()
-    if type(readfile) == "function" then
-        local success, key = pcall(readfile, KEY_FILE_PATH)
-        if success then
-            key = normalizeScriptKey(key)
-            if VALID_SCRIPT_KEYS[key] then
-                authorizedScriptKey = key
-                return key
-            end
+local function getCurrentHardwareId()
+    local environment = getExecutorEnvironment()
+    local locator = environment
+        and (environment.gethwid or environment.get_hwid)
+        or gethwid
+    if type(locator) ~= "function" then
+        return nil, "This executor does not provide an HWID API."
+    end
+
+    local success, value = pcall(locator)
+    if not success then
+        return nil, "Could not read this executor's hardware ID: "
+            .. tostring(value)
+    end
+
+    if type(value) ~= "string" or value == "" then
+        return nil, "The executor returned an empty or invalid hardware ID."
+    end
+
+    return value
+end
+
+local function encodeAuthorizationRecord(key, hardwareId)
+    return HttpService:JSONEncode({
+        key = key,
+        hardwareId = hardwareId
+    })
+end
+
+local function parseAuthorizationRecord(data)
+    local success, record = pcall(function()
+        return HttpService:JSONDecode(data)
+    end)
+    if success and type(record) == "table" then
+        local key = normalizeScriptKey(record.key)
+        if VALID_SCRIPT_KEYS[key] and type(record.hardwareId) == "string"
+            and record.hardwareId ~= "" then
+            return key, record.hardwareId, false
         end
     end
 
-    local environment = getExecutorEnvironment()
-    if environment then
-        local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
-        if VALID_SCRIPT_KEYS[key] then
-            authorizedScriptKey = key
-            return key
-        end
+    local legacyKey = normalizeScriptKey(data)
+    if VALID_SCRIPT_KEYS[legacyKey] then
+        return legacyKey, nil, true
     end
 
     return nil
 end
 
-local function hasSavedAuthorization()
-    if readSavedScriptKey() then
-        return true
-    end
+local function clearSavedAuthorization()
+    authorizedScriptKey = nil
+    lastAuthorizationError = nil
 
     local environment = getExecutorEnvironment()
-    return environment ~= nil and environment.SpookyTreeAuthorized == true
+    if environment then
+        environment.SpookyTreeSavedKey = nil
+        environment.SpookyTreeHardwareId = nil
+        environment.SpookyTreeAuthorized = nil
+    end
+
+    if type(isfile) == "function" then
+        local success, exists = pcall(isfile, KEY_FILE_PATH)
+        if success and not exists then
+            return true
+        end
+    elseif type(readfile) == "function" then
+        local success, data = pcall(readfile, KEY_FILE_PATH)
+        if success and data == "" then
+            return true
+        end
+    end
+
+    if type(writefile) == "function" then
+        local success, err = pcall(writefile, KEY_FILE_PATH, "")
+        if success then
+            return true
+        end
+        if type(delfile) ~= "function" then
+            lastAuthorizationError = "Could not clear the saved key file: "
+                .. tostring(err)
+            return false, lastAuthorizationError
+        end
+    end
+
+    if type(delfile) == "function" then
+        local success, err = pcall(delfile, KEY_FILE_PATH)
+        if success then
+            return true
+        end
+        lastAuthorizationError = "Could not delete the saved key file: "
+            .. tostring(err)
+        return false, lastAuthorizationError
+    end
+
+    if type(readfile) == "function" then
+        local success, data = pcall(readfile, KEY_FILE_PATH)
+        if success and data ~= "" then
+            lastAuthorizationError =
+                "This executor cannot clear the persistent key file."
+            return false, lastAuthorizationError
+        end
+    end
+
+    return true
 end
 
-local function saveAuthorization(key)
+local function saveAuthorization(key, hardwareId)
+    if not hardwareId then
+        local hardwareIdError
+        hardwareId, hardwareIdError = getCurrentHardwareId()
+        if not hardwareId then
+            lastAuthorizationError = "Cannot lock this key: "
+                .. tostring(hardwareIdError)
+            return false, lastAuthorizationError
+        end
+    end
+
     authorizedScriptKey = key
+    lastAuthorizationError = nil
 
     local savedToFile = false
     if type(writefile) == "function" then
-        local success, err = pcall(writefile, KEY_FILE_PATH, key)
+        local success, err = pcall(
+            writefile,
+            KEY_FILE_PATH,
+            encodeAuthorizationRecord(key, hardwareId)
+        )
         if success then
             savedToFile = true
         else
@@ -184,13 +590,67 @@ local function saveAuthorization(key)
     local environment = getExecutorEnvironment()
     if environment then
         environment.SpookyTreeSavedKey = key
+        environment.SpookyTreeHardwareId = hardwareId
         environment.SpookyTreeAuthorized = true
     end
 
     if not savedToFile then
-        warn("Spooky Tree Tools: Key is saved for this executor session only; "
-            .. "persistent saving requires writefile support.")
+        warn("Spooky Tree Tools: Key and HWID are saved for this executor "
+            .. "session only; persistent saving requires writefile support.")
     end
+
+    return true
+end
+
+local function readSavedScriptKey()
+    local hardwareId, hardwareIdError = getCurrentHardwareId()
+    if not hardwareId then
+        lastAuthorizationError = hardwareIdError
+        return nil
+    end
+
+    if type(readfile) == "function" then
+        local success, data = pcall(readfile, KEY_FILE_PATH)
+        if success then
+            local key, savedHardwareId, isLegacy =
+                parseAuthorizationRecord(data)
+            if key then
+                if isLegacy then
+                    saveAuthorization(key, hardwareId)
+                    return key
+                end
+                if savedHardwareId == hardwareId then
+                    authorizedScriptKey = key
+                    return key
+                end
+                lastAuthorizationError =
+                    "This saved key is locked to a different hardware ID."
+                return nil
+            end
+        end
+    end
+
+    local environment = getExecutorEnvironment()
+    if environment then
+        local key = normalizeScriptKey(environment.SpookyTreeSavedKey)
+        local savedHardwareId = environment.SpookyTreeHardwareId
+        if VALID_SCRIPT_KEYS[key] and type(savedHardwareId) == "string" then
+            if savedHardwareId == hardwareId then
+                authorizedScriptKey = key
+                return key
+            end
+            lastAuthorizationError =
+                "This saved key is locked to a different hardware ID."
+        elseif VALID_SCRIPT_KEYS[key] then
+            return saveAuthorization(key, hardwareId) and key or nil
+        end
+    end
+
+    return nil
+end
+
+local function hasSavedAuthorization()
+    return readSavedScriptKey() ~= nil
 end
 
 local function showKeyScreen()
@@ -200,8 +660,8 @@ local function showKeyScreen()
     keyGui.Parent = playerGui
 
     local panel = Instance.new("Frame")
-    panel.Size = UDim2.fromOffset(340, 220)
-    panel.Position = UDim2.new(0.5, -170, 0.5, -110)
+    panel.Size = UDim2.fromOffset(340, 270)
+    panel.Position = UDim2.new(0.5, -170, 0.5, -135)
     panel.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
     panel.BorderSizePixel = 1
     panel.BorderColor3 = Color3.fromRGB(65, 100, 145)
@@ -233,11 +693,12 @@ local function showKeyScreen()
     keyInput.Parent = panel
 
     local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -30, 0, 20)
+    status.Size = UDim2.new(1, -30, 0, 24)
     status.Position = UDim2.fromOffset(15, 93)
     status.BackgroundTransparency = 1
-    status.Text = ""
+    status.Text = lastAuthorizationError or ""
     status.TextColor3 = Color3.fromRGB(255, 125, 125)
+    status.TextWrapped = true
     status.TextSize = 13
     status.Font = Enum.Font.Arial
     status.Parent = panel
@@ -255,7 +716,35 @@ local function showKeyScreen()
     submit.AutoButtonColor = true
     submit.Parent = panel
 
-    createDiscordButton(panel, UDim2.fromOffset(15, 170))
+    local resetButton = Instance.new("TextButton")
+    resetButton.Size = UDim2.new(1, -30, 0, 34)
+    resetButton.Position = UDim2.fromOffset(15, 170)
+    resetButton.BackgroundColor3 = Color3.fromRGB(82, 54, 54)
+    resetButton.BorderSizePixel = 1
+    resetButton.BorderColor3 = Color3.fromRGB(130, 78, 78)
+    resetButton.Text = "Reset Local Key + HWID"
+    resetButton.TextColor3 = Color3.fromRGB(245, 225, 225)
+    resetButton.TextSize = 14
+    resetButton.Font = Enum.Font.Arial
+    resetButton.AutoButtonColor = true
+    resetButton.Parent = panel
+
+    createDiscordButton(panel, UDim2.fromOffset(15, 215), 145)
+    createWebhookButton(panel, UDim2.fromOffset(170, 215), 155)
+
+    resetButton.MouseButton1Click:Connect(function()
+        local cleared, err = clearSavedAuthorization()
+        if not cleared then
+            status.Text = err
+            warn("Spooky Tree Tools: Could not reset local authorization: "
+                .. tostring(err))
+            return
+        end
+
+        keyInput.Text = ""
+        status.Text = "Local key and HWID binding cleared."
+        status.TextColor3 = Color3.fromRGB(135, 225, 155)
+    end)
 
     local submitting = false
     local function validateKey()
@@ -271,7 +760,12 @@ local function showKeyScreen()
             return
         end
 
-        saveAuthorization(key)
+        local saved, saveError = saveAuthorization(key)
+        if not saved then
+            status.Text = saveError
+            submitting = false
+            return
+        end
         keyGui:Destroy()
         loadMenu()
     end
@@ -293,7 +787,7 @@ gui.Parent = playerGui
 
 local main = Instance.new("Frame")
 main.Name = "Window"
-main.Size = UDim2.fromOffset(390, 476)
+main.Size = UDim2.fromOffset(390, 523)
 main.Position = UDim2.new(0, 30, 0, 120)
 main.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
 main.BorderSizePixel = 1
@@ -301,13 +795,17 @@ main.BorderColor3 = Color3.fromRGB(65, 100, 145)
 main.ClipsDescendants = true
 main.Parent = gui
 
+local menuMinimized = false
+local MENU_HEIGHT = 523
+local treeList
+
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 34)
 titleBar.BackgroundColor3 = Color3.fromRGB(43, 79, 125)
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 
-local arrow = Instance.new("TextLabel")
+local arrow = Instance.new("TextButton")
 arrow.Size = UDim2.fromOffset(32, 34)
 arrow.Position = UDim2.fromOffset(4, 0)
 arrow.BackgroundTransparency = 1
@@ -315,7 +813,18 @@ arrow.Text = "▼"
 arrow.TextColor3 = Color3.fromRGB(225, 235, 245)
 arrow.TextSize = 17
 arrow.Font = Enum.Font.Arial
+arrow.AutoButtonColor = false
 arrow.Parent = titleBar
+
+arrow.MouseButton1Click:Connect(function()
+    menuMinimized = not menuMinimized
+    main.Size = UDim2.fromOffset(390, menuMinimized and 34 or MENU_HEIGHT)
+    arrow.Text = menuMinimized and "▲" or "▼"
+
+    if menuMinimized then
+        treeList.Visible = false
+    end
+end)
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -75, 1, 0)
@@ -340,6 +849,7 @@ close.AutoButtonColor = false
 close.Parent = titleBar
 
 local closeCleanup
+local closeMenu
 local flyEnabled = false
 local flyButton = nil
 local flyVelocity = nil
@@ -381,7 +891,7 @@ local function stopFlying()
     end
 end
 
-close.MouseButton1Click:Connect(function()
+closeMenu = function()
     if closeCleanup then
         closeCleanup()
     end
@@ -396,7 +906,9 @@ close.MouseButton1Click:Connect(function()
         end
     end
     gui:Destroy()
-end)
+end
+
+close.MouseButton1Click:Connect(closeMenu)
 
 local dragging = false
 local dragStart
@@ -466,7 +978,7 @@ local function playExclusiveTreeFoundSound()
     end
 end
 
-local function notifyTreeFound(treeType)
+local function notifyTreeFound(treeType, target)
     if treeFoundNotified or (currentJobId ~= "" and notifiedJobs[currentJobId]) then
         return
     end
@@ -476,6 +988,7 @@ local function notifyTreeFound(treeType)
         notifiedJobs[currentJobId] = true
     end
     playExclusiveTreeFoundSound()
+    sendWebhookAlert(treeType, target)
 
     task.spawn(function()
         for attempt = 1, 10 do
@@ -672,7 +1185,7 @@ local function hasSpookyTree(searchMode)
                     and (value == "spooky" or value == "spookyneon")
                 or searchMode == value)
                 and not hasNonPlayerOwner(target) then
-                return true, value
+                return true, value, target
             end
         end
     end
@@ -731,7 +1244,10 @@ local function addHighlight(treeClass)
     updateTreeMarker(target, value)
 
     highlightedTrees[treeClass] = target
-    notifyTreeFound(value == "spookyneon" and "Spooky Neon" or "spooky")
+    notifyTreeFound(
+        value == "spookyneon" and "Spooky Neon" or "spooky",
+        target
+    )
 end
 
 local watchedOwners = {}
@@ -849,7 +1365,7 @@ selectorArrow.TextSize = 13
 selectorArrow.Font = Enum.Font.Arial
 selectorArrow.Parent = selector
 
-local treeList = Instance.new("ScrollingFrame")
+treeList = Instance.new("ScrollingFrame")
 treeList.Size = UDim2.fromOffset(300, 100)
 treeList.Position = UDim2.fromOffset(15, 91)
 treeList.BackgroundColor3 = Color3.fromRGB(18, 20, 22)
@@ -1281,7 +1797,33 @@ neonSearchButton.Font = Enum.Font.Arial
 neonSearchButton.AutoButtonColor = false
 neonSearchButton.Parent = main
 
-createDiscordButton(main, UDim2.fromOffset(15, 425))
+createDiscordButton(main, UDim2.fromOffset(15, 425), 145)
+createWebhookButton(main, UDim2.fromOffset(170, 425), 145)
+
+local resetAuthorizationButton = Instance.new("TextButton")
+resetAuthorizationButton.Size = UDim2.fromOffset(300, 34)
+resetAuthorizationButton.Position = UDim2.fromOffset(15, 472)
+resetAuthorizationButton.BackgroundColor3 = Color3.fromRGB(82, 54, 54)
+resetAuthorizationButton.BorderSizePixel = 1
+resetAuthorizationButton.BorderColor3 = Color3.fromRGB(130, 78, 78)
+resetAuthorizationButton.Text = "Reset Local Key + HWID"
+resetAuthorizationButton.TextColor3 = Color3.fromRGB(245, 225, 225)
+resetAuthorizationButton.TextSize = 14
+resetAuthorizationButton.Font = Enum.Font.Arial
+resetAuthorizationButton.AutoButtonColor = true
+resetAuthorizationButton.Parent = main
+resetAuthorizationButton.MouseButton1Click:Connect(function()
+    local cleared, err = clearSavedAuthorization()
+    if not cleared then
+        resetAuthorizationButton.Text = "Reset failed - see console"
+        warn("Spooky Tree Tools: Could not reset local authorization: "
+            .. tostring(err))
+        return
+    end
+
+    closeMenu()
+    showKeyScreen()
+end)
 
 local function getVisitedServerState(placeId)
     local placeKey = tostring(placeId)
@@ -1400,7 +1942,7 @@ local function waitForPlayerReady(searchMode)
     return false
 end
 
-local function stopTreeSearch(found, treeType)
+local function stopTreeSearch(found, treeType, target)
     treeSearchMode = nil
     writeAutoSearchMode(nil)
     treeSearchButton.Text = "Find Spooky Tree: OFF"
@@ -1409,7 +1951,10 @@ local function stopTreeSearch(found, treeType)
     neonSearchButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
     if found then
         serverHop.Text = "Spooky tree found!"
-        notifyTreeFound(treeType == "spookyneon" and "Spooky Neon" or "spooky")
+        notifyTreeFound(
+            treeType == "spookyneon" and "Spooky Neon" or "spooky",
+            target
+        )
     end
 end
 
@@ -1485,10 +2030,10 @@ beginServerHop = function()
         end
 
         if treeSearchMode then
-            local found, treeType = hasSpookyTree(treeSearchMode)
+            local found, treeType, target = hasSpookyTree(treeSearchMode)
             if found then
                 hopping = false
-                stopTreeSearch(true, treeType)
+                stopTreeSearch(true, treeType, target)
                 break
             end
         end
@@ -1604,10 +2149,11 @@ beginServerHop = function()
                             local startedAt = os.clock()
                             repeat
                                 if treeSearchMode then
-                                    local found, treeType = hasSpookyTree(treeSearchMode)
+                                    local found, treeType, target =
+                                        hasSpookyTree(treeSearchMode)
                                     if found then
                                         hopping = false
-                                        stopTreeSearch(true, treeType)
+                                        stopTreeSearch(true, treeType, target)
                                         break
                                     end
                                 end
@@ -1726,9 +2272,9 @@ local function setTreeSearchMode(mode)
         return
     end
 
-    local found, treeType = hasSpookyTree(mode)
+    local found, treeType, target = hasSpookyTree(mode)
     if found then
-        stopTreeSearch(true, treeType)
+        stopTreeSearch(true, treeType, target)
     else
         task.spawn(beginServerHop)
     end
@@ -1774,9 +2320,9 @@ if treeSearchMode then
         and Color3.fromRGB(51, 87, 130)
         or Color3.fromRGB(39, 70, 108)
 
-    local found, treeType = hasSpookyTree(treeSearchMode)
+    local found, treeType, target = hasSpookyTree(treeSearchMode)
     if found then
-        stopTreeSearch(true, treeType)
+        stopTreeSearch(true, treeType, target)
     else
         task.defer(beginServerHop)
     end
