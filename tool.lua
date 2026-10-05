@@ -219,18 +219,40 @@ end
 
         local position
         if target and target:IsA("Model") then
-            position = target:GetPivot().Position
+            local success, pivot = pcall(function()
+                return target:GetPivot()
+            end)
+            if success then
+                position = pivot.Position
+            end
         elseif target and target:IsA("BasePart") then
             position = target.Position
         end
+        if not position and target then
+            local part = target:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                position = part.Position
+            end
+        end
 
-        local coordinates = position
-            and string.format("X: %.2f  |  Y: %.2f  |  Z: %.2f",
-                position.X, position.Y, position.Z)
-            or "Unavailable"
+        local x = position and string.format("%.2f", position.X) or "Unavailable"
+        local y = position and string.format("%.2f", position.Y) or "Unavailable"
+        local z = position and string.format("%.2f", position.Z) or "Unavailable"
         local isNeon = treeType == "Spooky Neon"
+        local joinUrl = "https://www.roblox.com/games/start?placeId="
+            .. tostring(game.PlaceId)
+            .. "&gameInstanceId="
+            .. HttpService:UrlEncode(game.JobId)
         local body = HttpService:JSONEncode({
-            content = "@everyone",
+            content = string.format(
+                "@everyone **%s found!** Coordinates: X %s, Y %s, Z %s. "
+                    .. "Join this server: %s",
+                treeType,
+                x,
+                y,
+                z,
+                joinUrl
+            ),
             allowed_mentions = { parse = { "everyone" } },
             username = "Spooky Tree Finder",
             embeds = {
@@ -238,16 +260,27 @@ end
                     title = isNeon and "Spooky Neon Found!" or "Spooky Tree Found!",
                     description = "A **" .. treeType .. "** tree was found.",
                     color = isNeon and 65535 or 16742440,
+                    url = joinUrl,
                     fields = {
                         {
-                            name = "World Position",
-                            value = "```" .. coordinates .. "```",
-                            inline = false
+                            name = "X",
+                            value = x,
+                            inline = true
                         },
                         {
-                            name = "Place ID",
-                            value = tostring(game.PlaceId),
+                            name = "Y",
+                            value = y,
                             inline = true
+                        },
+                        {
+                            name = "Z",
+                            value = z,
+                            inline = true
+                        },
+                        {
+                            name = "Join Server",
+                            value = "[Click here to join](" .. joinUrl .. ")",
+                            inline = false
                         }
                     },
                     footer = { text = "Spooky Tree Tools" },
@@ -258,13 +291,23 @@ end
 
         task.spawn(function()
             for attempt = 1, 3 do
-                local success, response = pcall(requestFunction, {
+                local options = {
                     Url = webhookUrl,
                     Method = "POST",
                     Headers = { ["Content-Type"] = "application/json" },
                     Body = body,
                     Timeout = 10
-                })
+                }
+                local success, response = pcall(requestFunction, options)
+                if not success then
+                    success, response = pcall(requestFunction, {
+                        url = options.Url,
+                        method = options.Method,
+                        headers = options.Headers,
+                        body = options.Body,
+                        timeout = options.Timeout
+                    })
+                end
                 if success then
                     local statusCode = type(response) == "table"
                         and (response.StatusCode or response.Status)
@@ -272,7 +315,9 @@ end
                         or tonumber(type(statusCode) == "string"
                             and string.match(statusCode, "^%s*(%d+)")
                             or nil)
-                    if statusCode == 200 or statusCode == 204 then
+                    if statusCode == 200 or statusCode == 204
+                        or (statusCode == nil and type(response) == "table"
+                            and response.Success == true) then
                         webhookAlertSent = true
                         webhookAlertInFlight = false
                         return
@@ -443,6 +488,20 @@ local function writeAutoSearchMode(mode)
 end
 
 local treeSearchMode = readAutoSearchMode()
+local executorEnvironment = getExecutorEnvironment()
+local skipFoundTrees = executorEnvironment ~= nil
+    and executorEnvironment.SpookyTreeSkipFoundTrees == true
+
+local function writeSkipFoundTrees(enabled)
+    local environment = getExecutorEnvironment()
+    if not environment then
+        return false
+    end
+
+    environment.SpookyTreeSkipFoundTrees = enabled
+    skipFoundTrees = enabled
+    return true
+end
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
 local TREE_MARKER_NAME = "SpookyTreeMarker"
@@ -815,7 +874,7 @@ gui.Parent = playerGui
 
 local main = Instance.new("Frame")
 main.Name = "Window"
-main.Size = UDim2.fromOffset(390, 523)
+main.Size = UDim2.fromOffset(390, 570)
 main.Position = UDim2.new(0, 30, 0, 120)
 main.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
 main.BorderSizePixel = 1
@@ -824,7 +883,7 @@ main.ClipsDescendants = true
 main.Parent = gui
 
 local menuMinimized = false
-local MENU_HEIGHT = 523
+local MENU_HEIGHT = 570
 local treeList
 
 local titleBar = Instance.new("Frame")
@@ -1841,12 +1900,41 @@ neonSearchButton.Font = Enum.Font.Arial
 neonSearchButton.AutoButtonColor = false
 neonSearchButton.Parent = main
 
-createDiscordButton(main, UDim2.fromOffset(15, 425), 145)
-createWebhookButton(main, UDim2.fromOffset(170, 425), 145)
+local skipTreesButton = Instance.new("TextButton")
+skipTreesButton.Size = UDim2.fromOffset(300, 38)
+skipTreesButton.Position = UDim2.fromOffset(15, 425)
+skipTreesButton.BackgroundColor3 = skipFoundTrees
+    and Color3.fromRGB(51, 87, 130)
+    or Color3.fromRGB(39, 70, 108)
+skipTreesButton.BorderSizePixel = 1
+skipTreesButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
+skipTreesButton.Text = skipFoundTrees and "Skip Trees: ON" or "Skip Trees: OFF"
+skipTreesButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+skipTreesButton.TextSize = 16
+skipTreesButton.Font = Enum.Font.Arial
+skipTreesButton.AutoButtonColor = false
+skipTreesButton.Parent = main
+
+skipTreesButton.MouseButton1Click:Connect(function()
+    local nextState = not skipFoundTrees
+    if not writeSkipFoundTrees(nextState) then
+        warn("Spooky Tree Tools: Skip Trees toggle requires getgenv support.")
+        return
+    end
+
+    skipTreesButton.Text = skipFoundTrees and "Skip Trees: ON"
+        or "Skip Trees: OFF"
+    skipTreesButton.BackgroundColor3 = skipFoundTrees
+        and Color3.fromRGB(51, 87, 130)
+        or Color3.fromRGB(39, 70, 108)
+end)
+
+createDiscordButton(main, UDim2.fromOffset(15, 472), 145)
+createWebhookButton(main, UDim2.fromOffset(170, 472), 145)
 
 local resetAuthorizationButton = Instance.new("TextButton")
 resetAuthorizationButton.Size = UDim2.fromOffset(300, 34)
-resetAuthorizationButton.Position = UDim2.fromOffset(15, 472)
+resetAuthorizationButton.Position = UDim2.fromOffset(15, 519)
 resetAuthorizationButton.BackgroundColor3 = Color3.fromRGB(82, 54, 54)
 resetAuthorizationButton.BorderSizePixel = 1
 resetAuthorizationButton.BorderColor3 = Color3.fromRGB(130, 78, 78)
@@ -1987,6 +2075,15 @@ local function waitForPlayerReady(searchMode)
 end
 
 local function stopTreeSearch(found, treeType, target)
+    if found and skipFoundTrees then
+        serverHop.Text = "Tree found; continuing to hop..."
+        notifyTreeFound(
+            treeType == "spookyneon" and "Spooky Neon" or "spooky",
+            target
+        )
+        return false
+    end
+
     treeSearchMode = nil
     writeAutoSearchMode(nil)
     treeSearchButton.Text = "Find Spooky Tree: OFF"
@@ -2000,6 +2097,7 @@ local function stopTreeSearch(found, treeType, target)
             target
         )
     end
+    return true
 end
 
 beginServerHop = function()
@@ -2076,9 +2174,10 @@ beginServerHop = function()
         if treeSearchMode then
             local found, treeType, target = hasSpookyTree(treeSearchMode)
             if found then
-                hopping = false
-                stopTreeSearch(true, treeType, target)
-                break
+                if stopTreeSearch(true, treeType, target) then
+                    hopping = false
+                    break
+                end
             end
         end
 
@@ -2189,6 +2288,7 @@ beginServerHop = function()
                             )
                         end)
 
+                        local foundTreeWhileWaiting = false
                         if teleportSuccess then
                             local startedAt = os.clock()
                             repeat
@@ -2196,8 +2296,13 @@ beginServerHop = function()
                                     local found, treeType, target =
                                         hasSpookyTree(treeSearchMode)
                                     if found then
-                                        hopping = false
-                                        stopTreeSearch(true, treeType, target)
+                                        local searchStopped =
+                                            stopTreeSearch(true, treeType, target)
+                                        if searchStopped then
+                                            hopping = false
+                                            break
+                                        end
+                                        foundTreeWhileWaiting = true
                                         break
                                     end
                                 end
@@ -2221,6 +2326,10 @@ beginServerHop = function()
                                 .. tostring(teleportError)
                             )
                             task.wait(HOP_RETRY_DELAY)
+                        elseif foundTreeWhileWaiting and hopping
+                            and serverHop.Parent then
+                            serverHop.Text = "Tree found; trying next server..."
+                            task.wait(1)
                         elseif hopping and serverHop.Parent then
                             serverHop.Text = "Teleport timed out; waiting before retry..."
                             task.wait(HOP_RETRY_DELAY)
@@ -2318,7 +2427,9 @@ local function setTreeSearchMode(mode)
 
     local found, treeType, target = hasSpookyTree(mode)
     if found then
-        stopTreeSearch(true, treeType, target)
+        if not stopTreeSearch(true, treeType, target) then
+            task.spawn(beginServerHop)
+        end
     else
         task.spawn(beginServerHop)
     end
@@ -2366,7 +2477,9 @@ if treeSearchMode then
 
     local found, treeType, target = hasSpookyTree(treeSearchMode)
     if found then
-        stopTreeSearch(true, treeType, target)
+        if not stopTreeSearch(true, treeType, target) then
+            task.defer(beginServerHop)
+        end
     else
         task.defer(beginServerHop)
     end
@@ -2383,6 +2496,7 @@ local function hover(button)
         local isActive = (button == flyButton and flyEnabled)
             or (button == treeSearchButton and treeSearchMode == "spooky")
             or (button == neonSearchButton and treeSearchMode == "spookyneon")
+            or (button == skipTreesButton and skipFoundTrees)
         button.BackgroundColor3 = isActive
             and Color3.fromRGB(51, 87, 130)
             or Color3.fromRGB(39, 70, 108)
@@ -2397,6 +2511,7 @@ hover(setWalkSpeedButton)
 hover(serverHop)
 hover(treeSearchButton)
 hover(neonSearchButton)
+hover(skipTreesButton)
 end
 
 if playerGui:FindFirstChild("SpookyTreeTools") then
