@@ -100,6 +100,7 @@ end
 local treeSearchMode = readAutoSearchMode()
 
 local HIGHLIGHT_NAME = "SpookyTreeHighlight"
+local TREE_MARKER_NAME = "SpookyTreeMarker"
 local SCRIPT_URL = "https://raw.githubusercontent.com/vlexlyss/spookytool/refs/heads/main/tool.lua"
 local EXCLUSIVE_AUDIO_KEY = "SPOOKY-7K4M-9Q2X-1R8P"
 local TREE_FOUND_SOUND_ID = "rbxassetid://116841974988859"
@@ -581,6 +582,88 @@ local function isEligibleTreeTarget(target)
     return not isPlankTarget(target) and not hasNonPlayerOwner(target)
 end
 
+local function removeTreeVisuals(target)
+    if not target then
+        return
+    end
+
+    for _, name in ipairs({ HIGHLIGHT_NAME, TREE_MARKER_NAME }) do
+        local visual = target:FindFirstChild(name, true)
+        if visual then
+            visual:Destroy()
+        end
+    end
+end
+
+local function removeTrackedTree(treeClass, target)
+    highlightedTrees[treeClass] = nil
+    if selectedTree == target then
+        selectedTree = nil
+    end
+
+    for _, otherTarget in pairs(highlightedTrees) do
+        if otherTarget == target then
+            return
+        end
+    end
+
+    removeTreeVisuals(target)
+end
+
+local function updateTreeMarker(target, treeType)
+    local adornee
+    if target:IsA("BasePart") then
+        adornee = target
+    elseif target:IsA("Model") then
+        adornee = target.PrimaryPart
+            or target:FindFirstChildWhichIsA("BasePart", true)
+    end
+
+    if not adornee then
+        return
+    end
+
+    local marker = target:FindFirstChild(TREE_MARKER_NAME, true)
+    if not marker then
+        marker = Instance.new("BillboardGui")
+        marker.Name = TREE_MARKER_NAME
+        marker.Size = UDim2.fromOffset(170, 34)
+        marker.StudsOffset = Vector3.new(0, 5, 0)
+        marker.AlwaysOnTop = true
+        marker.LightInfluence = 0
+        marker.MaxDistance = 1000
+
+        local label = Instance.new("TextLabel")
+        label.Name = "Label"
+        label.Size = UDim2.fromScale(1, 1)
+        label.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
+        label.BackgroundTransparency = 0.2
+        label.BorderSizePixel = 0
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.TextStrokeTransparency = 0.35
+        label.Parent = marker
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = label
+    end
+
+    marker.Adornee = adornee
+    marker.Parent = adornee
+
+    local label = marker:FindFirstChild("Label")
+    if label then
+        if treeType == "spookyneon" then
+            label.Text = "SPOOKY NEON"
+            label.TextColor3 = Color3.fromRGB(0, 255, 255)
+        else
+            label.Text = "SPOOKY"
+            label.TextColor3 = Color3.fromRGB(255, 150, 65)
+        end
+    end
+end
+
 local function hasSpookyTree(searchMode)
     for treeClass, target in pairs(highlightedTrees) do
         if treeClass.Parent and target and target.Parent then
@@ -610,29 +693,20 @@ local function addHighlight(treeClass)
     knownTreeClasses[treeClass] = true
 
     local value = string.lower(treeClass.Value)
-
-    if value ~= "spooky" and value ~= "spookyneon" then
-        return
-    end
-
     local target = treeClass:FindFirstAncestorOfClass("Model")
         or treeClass.Parent
+
+    if value ~= "spooky" and value ~= "spookyneon" then
+        removeTrackedTree(treeClass, highlightedTrees[treeClass] or target)
+        return
+    end
 
     if not target then
         return
     end
 
     if not isEligibleTreeTarget(target) then
-        local existingHighlight = target:FindFirstChild(HIGHLIGHT_NAME)
-        if existingHighlight then
-            existingHighlight:Destroy()
-        end
-
-        highlightedTrees[treeClass] = nil
-        if selectedTree == target then
-            selectedTree = nil
-        end
-
+        removeTrackedTree(treeClass, target)
         return
     end
 
@@ -654,6 +728,7 @@ local function addHighlight(treeClass)
     end
 
     highlight.OutlineColor = Color3.new(1, 1, 1)
+    updateTreeMarker(target, value)
 
     highlightedTrees[treeClass] = target
     notifyTreeFound(value == "spookyneon" and "Spooky Neon" or "spooky")
@@ -709,15 +784,7 @@ workspace.DescendantAdded:Connect(function(instance)
     elseif string.find(string.lower(instance.Name), "plank", 1, true) then
         for treeClass, target in pairs(highlightedTrees) do
             if target and target.Parent and not isEligibleTreeTarget(target) then
-                local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
-                if highlight then
-                    highlight:Destroy()
-                end
-
-                highlightedTrees[treeClass] = nil
-                if selectedTree == target then
-                    selectedTree = nil
-                end
+                removeTrackedTree(treeClass, target)
             end
         end
     elseif instance.Name == "Owner" then
@@ -742,10 +809,7 @@ workspace.DescendantRemoving:Connect(function(instance)
             end
 
             if not stillHasTrackedTreeClass then
-                local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
-                if highlight then
-                    highlight:Destroy()
-                end
+                removeTreeVisuals(target)
             end
         end
     elseif instance.Name == "Owner" then
@@ -835,15 +899,7 @@ local function refreshTreeList()
 
         if treeClass.Parent and target and target.Parent then
             if not isEligibleTreeTarget(target) then
-                local highlight = target:FindFirstChild(HIGHLIGHT_NAME)
-                if highlight then
-                    highlight:Destroy()
-                end
-
-                highlightedTrees[treeClass] = nil
-                if selectedTree == target then
-                    selectedTree = nil
-                end
+                removeTrackedTree(treeClass, target)
             else
                 table.insert(trees, {
                     treeClass = treeClass,
@@ -1679,14 +1735,21 @@ local function setTreeSearchMode(mode)
 end
 
 closeCleanup = function()
-    if not treeSearchMode then
-        return
+    if treeSearchMode then
+        treeSearchMode = nil
+        writeAutoSearchMode(nil)
+        hopping = false
+        hopIsAutoSearch = false
     end
 
-    treeSearchMode = nil
-    writeAutoSearchMode(nil)
-    hopping = false
-    hopIsAutoSearch = false
+    for _, target in pairs(highlightedTrees) do
+        if target and target.Parent then
+            local marker = target:FindFirstChild(TREE_MARKER_NAME, true)
+            if marker then
+                marker:Destroy()
+            end
+        end
+    end
 end
 
 treeSearchButton.MouseButton1Click:Connect(function()
