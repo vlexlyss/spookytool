@@ -362,66 +362,124 @@ end
         menuGui.Parent = playerGui
 
         local panel = Instance.new("Frame")
-        panel.Size = UDim2.fromOffset(380, 250)
-        panel.Position = UDim2.new(0.5, -190, 0.5, -125)
+        panel.Size = UDim2.fromOffset(400, 292)
+        panel.Position = UDim2.new(0.5, -200, 0.5, -146)
         panel.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
         panel.BorderSizePixel = 1
         panel.BorderColor3 = Color3.fromRGB(65, 100, 145)
+        panel.ClipsDescendants = true
         panel.Parent = menuGui
 
+        local titleBar = Instance.new("Frame")
+        titleBar.Size = UDim2.new(1, 0, 0, 34)
+        titleBar.BackgroundColor3 = Color3.fromRGB(43, 79, 125)
+        titleBar.BorderSizePixel = 0
+        titleBar.Parent = panel
+
         local heading = Instance.new("TextLabel")
-        heading.Size = UDim2.new(1, -24, 0, 32)
-        heading.Position = UDim2.fromOffset(12, 10)
+        heading.Size = UDim2.new(1, -56, 1, 0)
+        heading.Position = UDim2.fromOffset(14, 0)
         heading.BackgroundTransparency = 1
         heading.Text = "Webhook Alerts"
         heading.TextColor3 = Color3.fromRGB(225, 235, 245)
-        heading.TextSize = 19
+        heading.TextSize = 17
         heading.Font = Enum.Font.Arial
         heading.TextXAlignment = Enum.TextXAlignment.Left
-        heading.Parent = panel
+        heading.Parent = titleBar
+
+        local closeButton = Instance.new("TextButton")
+        closeButton.Size = UDim2.fromOffset(34, 34)
+        closeButton.Position = UDim2.new(1, -38, 0, 0)
+        closeButton.BackgroundTransparency = 1
+        closeButton.Text = "×"
+        closeButton.TextColor3 = Color3.fromRGB(225, 235, 245)
+        closeButton.TextSize = 30
+        closeButton.Font = Enum.Font.Arial
+        closeButton.AutoButtonColor = false
+        closeButton.Parent = titleBar
+        closeButton.MouseButton1Click:Connect(function()
+            menuGui:Destroy()
+        end)
+
+        local dragging = false
+        local dragStart
+        local startPosition
+        titleBar.InputBegan:Connect(function(inputObject)
+            if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                dragStart = inputObject.Position
+                startPosition = panel.Position
+            end
+        end)
+        titleBar.InputEnded:Connect(function(inputObject)
+            if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+
+        local dragConnection = UserInputService.InputChanged:Connect(
+            function(inputObject)
+                if dragging
+                    and inputObject.UserInputType == Enum.UserInputType.MouseMovement then
+                    local delta = inputObject.Position - dragStart
+                    panel.Position = UDim2.new(
+                        startPosition.X.Scale,
+                        startPosition.X.Offset + delta.X,
+                        startPosition.Y.Scale,
+                        startPosition.Y.Offset + delta.Y
+                    )
+                end
+            end
+        )
+        menuGui.Destroying:Connect(function()
+            dragConnection:Disconnect()
+        end)
 
         local hint = Instance.new("TextLabel")
-        hint.Size = UDim2.new(1, -24, 0, 40)
-        hint.Position = UDim2.fromOffset(12, 44)
+        hint.Size = UDim2.new(1, -28, 0, 48)
+        hint.Position = UDim2.fromOffset(14, 46)
         hint.BackgroundTransparency = 1
-        hint.Text = "Paste a Discord webhook URL. It will @everyone once per server when a tree is found."
+        hint.Text = "Paste your Discord webhook URL. Alerts ping @everyone once per server and include tree coordinates plus a join link."
         hint.TextColor3 = Color3.fromRGB(175, 190, 205)
-        hint.TextSize = 13
+        hint.TextSize = 14
         hint.TextWrapped = true
         hint.Font = Enum.Font.Arial
         hint.TextXAlignment = Enum.TextXAlignment.Left
+        hint.TextYAlignment = Enum.TextYAlignment.Top
         hint.Parent = panel
 
         local input = Instance.new("TextBox")
-        input.Size = UDim2.new(1, -24, 0, 38)
-        input.Position = UDim2.fromOffset(12, 91)
+        input.Size = UDim2.new(1, -28, 0, 40)
+        input.Position = UDim2.fromOffset(14, 102)
         input.BackgroundColor3 = Color3.fromRGB(25, 34, 45)
         input.BorderSizePixel = 1
         input.BorderColor3 = Color3.fromRGB(67, 104, 150)
         input.PlaceholderText = "https://discord.com/api/webhooks/..."
         input.Text = webhookUrl or ""
         input.ClearTextOnFocus = false
+        input.TextXAlignment = Enum.TextXAlignment.Left
         input.TextColor3 = Color3.fromRGB(225, 235, 245)
         input.PlaceholderColor3 = Color3.fromRGB(150, 165, 180)
-        input.TextSize = 13
+        input.TextSize = 12
         input.Font = Enum.Font.Arial
         input.Parent = panel
 
         local status = Instance.new("TextLabel")
-        status.Size = UDim2.new(1, -24, 0, 36)
-        status.Position = UDim2.fromOffset(12, 134)
+        status.Size = UDim2.new(1, -28, 0, 42)
+        status.Position = UDim2.fromOffset(14, 150)
         status.BackgroundTransparency = 1
-        status.Text = "Treat this URL like a password; anyone with it can post."
+        status.Text = "Keep your webhook URL private; anyone who has it can post to your channel."
         status.TextColor3 = Color3.fromRGB(220, 190, 120)
-        status.TextSize = 12
+        status.TextSize = 13
         status.TextWrapped = true
         status.Font = Enum.Font.Arial
         status.TextXAlignment = Enum.TextXAlignment.Left
+        status.TextYAlignment = Enum.TextYAlignment.Center
         status.Parent = panel
 
         local saveButton = Instance.new("TextButton")
-        saveButton.Size = UDim2.fromOffset(170, 36)
-        saveButton.Position = UDim2.fromOffset(12, 196)
+        saveButton.Size = UDim2.fromOffset(180, 38)
+        saveButton.Position = UDim2.fromOffset(14, 238)
         saveButton.BackgroundColor3 = Color3.fromRGB(39, 70, 108)
         saveButton.BorderSizePixel = 1
         saveButton.BorderColor3 = Color3.fromRGB(67, 104, 150)
@@ -432,8 +490,8 @@ end
         saveButton.Parent = panel
 
         local cancelButton = Instance.new("TextButton")
-        cancelButton.Size = UDim2.fromOffset(170, 36)
-        cancelButton.Position = UDim2.fromOffset(198, 196)
+        cancelButton.Size = UDim2.fromOffset(180, 38)
+        cancelButton.Position = UDim2.fromOffset(206, 238)
         cancelButton.BackgroundColor3 = Color3.fromRGB(54, 59, 66)
         cancelButton.BorderSizePixel = 1
         cancelButton.BorderColor3 = Color3.fromRGB(85, 95, 105)
