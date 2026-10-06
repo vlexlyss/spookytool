@@ -361,6 +361,14 @@ end
         menuGui.DisplayOrder = 20
         menuGui.Parent = playerGui
 
+        local function scaleText(object, minimumSize, maximumSize)
+            object.TextScaled = true
+            local sizeConstraint = Instance.new("UITextSizeConstraint")
+            sizeConstraint.MinTextSize = minimumSize
+            sizeConstraint.MaxTextSize = maximumSize
+            sizeConstraint.Parent = object
+        end
+
         local panel = Instance.new("Frame")
         panel.Size = UDim2.fromOffset(400, 292)
         panel.Position = UDim2.new(0.5, -200, 0.5, -146)
@@ -386,6 +394,7 @@ end
         heading.Font = Enum.Font.Arial
         heading.TextXAlignment = Enum.TextXAlignment.Left
         heading.Parent = titleBar
+        scaleText(heading, 14, 17)
 
         local closeButton = Instance.new("TextButton")
         closeButton.Size = UDim2.fromOffset(34, 34)
@@ -397,6 +406,7 @@ end
         closeButton.Font = Enum.Font.Arial
         closeButton.AutoButtonColor = false
         closeButton.Parent = titleBar
+        scaleText(closeButton, 22, 30)
         closeButton.MouseButton1Click:Connect(function()
             menuGui:Destroy()
         end)
@@ -447,6 +457,7 @@ end
         hint.TextXAlignment = Enum.TextXAlignment.Left
         hint.TextYAlignment = Enum.TextYAlignment.Top
         hint.Parent = panel
+        scaleText(hint, 11, 14)
 
         local input = Instance.new("TextBox")
         input.Size = UDim2.new(1, -28, 0, 40)
@@ -463,6 +474,7 @@ end
         input.TextSize = 12
         input.Font = Enum.Font.Arial
         input.Parent = panel
+        scaleText(input, 10, 13)
 
         local status = Instance.new("TextLabel")
         status.Size = UDim2.new(1, -28, 0, 42)
@@ -476,6 +488,7 @@ end
         status.TextXAlignment = Enum.TextXAlignment.Left
         status.TextYAlignment = Enum.TextYAlignment.Center
         status.Parent = panel
+        scaleText(status, 11, 13)
 
         local saveButton = Instance.new("TextButton")
         saveButton.Size = UDim2.fromOffset(180, 38)
@@ -488,6 +501,7 @@ end
         saveButton.TextSize = 15
         saveButton.Font = Enum.Font.Arial
         saveButton.Parent = panel
+        scaleText(saveButton, 13, 16)
 
         local cancelButton = Instance.new("TextButton")
         cancelButton.Size = UDim2.fromOffset(180, 38)
@@ -500,6 +514,7 @@ end
         cancelButton.TextSize = 15
         cancelButton.Font = Enum.Font.Arial
         cancelButton.Parent = panel
+        scaleText(cancelButton, 13, 16)
 
         saveButton.MouseButton1Click:Connect(function()
             local saved, message = saveWebhookUrl(input.Text)
@@ -1270,11 +1285,19 @@ end
 
 local function updateTreeMarker(target, treeType)
     local adornee
+    local markerHeight = 5
     if target:IsA("BasePart") then
         adornee = target
     elseif target:IsA("Model") then
         adornee = target.PrimaryPart
             or target:FindFirstChildWhichIsA("BasePart", true)
+        local success, bounds = pcall(function()
+            local _, size = target:GetBoundingBox()
+            return size
+        end)
+        if success and bounds then
+            markerHeight = math.max(5, bounds.Y * 0.55)
+        end
     end
 
     if not adornee then
@@ -1285,39 +1308,92 @@ local function updateTreeMarker(target, treeType)
     if not marker then
         marker = Instance.new("BillboardGui")
         marker.Name = TREE_MARKER_NAME
-        marker.Size = UDim2.fromOffset(170, 34)
-        marker.StudsOffset = Vector3.new(0, 5, 0)
+        marker.Size = UDim2.fromOffset(190, 48)
         marker.AlwaysOnTop = true
         marker.LightInfluence = 0
         marker.MaxDistance = 1000
+        marker.ClipsDescendants = true
+
+        local card = Instance.new("Frame")
+        card.Name = "Card"
+        card.Size = UDim2.fromScale(1, 1)
+        card.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
+        card.BackgroundTransparency = 0.12
+        card.BorderSizePixel = 0
+        card.Parent = marker
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 7)
+        corner.Parent = card
+
+        local outline = Instance.new("UIStroke")
+        outline.Name = "MarkerOutline"
+        outline.Thickness = 1.5
+        outline.Transparency = 0.1
+        outline.Parent = card
 
         local label = Instance.new("TextLabel")
         label.Name = "Label"
-        label.Size = UDim2.fromScale(1, 1)
-        label.BackgroundColor3 = Color3.fromRGB(15, 17, 19)
-        label.BackgroundTransparency = 0.2
+        label.Size = UDim2.new(1, 0, 0.58, 0)
+        label.Position = UDim2.fromOffset(0, 2)
+        label.BackgroundTransparency = 1
         label.BorderSizePixel = 0
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 16
-        label.TextStrokeTransparency = 0.35
-        label.Parent = marker
+        label.TextScaled = true
+        label.TextStrokeTransparency = 1
+        label.Parent = card
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = label
+        local labelConstraint = Instance.new("UITextSizeConstraint")
+        labelConstraint.MinTextSize = 12
+        labelConstraint.MaxTextSize = 18
+        labelConstraint.Parent = label
+
+        local subtitle = Instance.new("TextLabel")
+        subtitle.Name = "Subtitle"
+        subtitle.Size = UDim2.new(1, -8, 0.34, 0)
+        subtitle.Position = UDim2.new(0, 4, 0.61, 0)
+        subtitle.BackgroundTransparency = 1
+        subtitle.Font = Enum.Font.GothamMedium
+        subtitle.Text = "RARE TREE"
+        subtitle.TextColor3 = Color3.fromRGB(225, 235, 245)
+        subtitle.TextScaled = true
+        subtitle.Parent = card
+
+        local subtitleConstraint = Instance.new("UITextSizeConstraint")
+        subtitleConstraint.MinTextSize = 9
+        subtitleConstraint.MaxTextSize = 12
+        subtitleConstraint.Parent = subtitle
+
     end
 
     marker.Adornee = adornee
     marker.Parent = adornee
+    marker.StudsOffset = Vector3.new(0, markerHeight, 0)
 
-    local label = marker:FindFirstChild("Label")
+    local label = marker:FindFirstChild("Label", true)
+    local subtitle = marker:FindFirstChild("Subtitle", true)
+    local markerOutline = marker:FindFirstChild("MarkerOutline", true)
     if label then
         if treeType == "spookyneon" then
             label.Text = "SPOOKY NEON"
             label.TextColor3 = Color3.fromRGB(0, 255, 255)
+            if markerOutline then
+                markerOutline.Color = Color3.fromRGB(0, 220, 255)
+            end
+            if subtitle then
+                subtitle.Text = "NEON VARIANT"
+                subtitle.TextColor3 = Color3.fromRGB(145, 245, 255)
+            end
         else
             label.Text = "SPOOKY"
             label.TextColor3 = Color3.fromRGB(255, 150, 65)
+            if markerOutline then
+                markerOutline.Color = Color3.fromRGB(255, 125, 45)
+            end
+            if subtitle then
+                subtitle.Text = "RARE TREE"
+                subtitle.TextColor3 = Color3.fromRGB(255, 205, 155)
+            end
         end
     end
 end
@@ -1378,14 +1454,17 @@ local function addHighlight(treeClass)
 
     highlight.Adornee = target
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillTransparency = 0.72
+    highlight.OutlineTransparency = 0.05
 
     if value == "spookyneon" then
         highlight.FillColor = Color3.fromRGB(0, 255, 255)
+        highlight.OutlineColor = Color3.fromRGB(0, 220, 255)
     else
         highlight.FillColor = Color3.fromRGB(255, 120, 40)
+        highlight.OutlineColor = Color3.fromRGB(255, 125, 45)
     end
 
-    highlight.OutlineColor = Color3.new(1, 1, 1)
     updateTreeMarker(target, value)
 
     highlightedTrees[treeClass] = target
